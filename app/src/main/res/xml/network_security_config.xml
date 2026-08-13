@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Allow cleartext HTTP for itch.io and its CDNs.
+    Required because Mitch targets API 28+, which blocks cleartext traffic by default,
+    yet itch.io still serves (and redirects to) plain "http://" links.
+    https://todo.sr.ht/~gardenapple/mitch/65
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">itch.io</domain>
+        <domain includeSubdomains="true">itch.zone</domain>
+        <domain includeSubdomains="true">hwcdn.net</domain>
+    </domain-config>
+</network-security-config>

@@ -9,9 +9,11 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.util.Base64
 import android.util.Log
 import android.view.View
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -21,6 +23,7 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.Keep
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.edit
 import androidx.core.content.pm.ShortcutInfoCompat
@@ -42,6 +45,8 @@ import garden.appl.mitch.client.ItchWebsiteParser
 import garden.appl.mitch.database.AppDatabase
 import garden.appl.mitch.database.game.Game
 import garden.appl.mitch.databinding.ActivityGameBinding
+import garden.appl.mitch.files.DownloadFileListener
+import garden.appl.mitch.files.DownloadType
 import garden.appl.mitch.files.Downloader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +54,11 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.io.OutputStream
+import java.security.SecureRandom
 import java.util.concurrent.ExecutionException
 
 class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
@@ -127,6 +137,7 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
     private lateinit var binding: ActivityGameBinding
     private lateinit var webView: MitchWebView
     private lateinit var chromeClient: GameChromeClient
+    private lateinit var blobDownloadBridge: BlobDownloadBridge
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
 
     private var isOfflineMode: Boolean = false
@@ -175,12 +186,15 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
         webView.settings.allowFileAccess = false
         webView.settings.allowContentAccess = false
 
+        blobDownloadBridge = BlobDownloadBridge(this)
+        webView.addJavascriptInterface(blobDownloadBridge, "mitchBlobJS")
+
         webView.setBackgroundColor(Utils.getColor(this, R.color.colorAccent))
 
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
             val fileName = Utils.guessFileName(url, contentDisposition, mimeType)
             if (url.startsWith("blob:")) {
-                webView.redirectBlobUrlToDataUrl(url, fileName)
+                startBlobDownload(url, fileName)
                 return@setDownloadListener
             }
             Log.d(LOGGING_TAG, "Guessed file name: $fileName")
@@ -217,7 +231,6 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
         }
 
         val gameId = intent?.getIntExtra(EXTRA_GAME_ID, -1) ?: -1
-
         val foregroundServiceIntent = Intent(this, GameForegroundService::class.java)
         foregroundServiceIntent.putExtra(GameForegroundService.EXTRA_ORIGINAL_INTENT, intent)
         foregroundServiceIntent.putExtra(GameForegroundService.EXTRA_GAME_ID, gameId)
@@ -240,6 +253,44 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
         }
     }
 
+    /**
+     * Downloads a page-provided blob URL by streaming its bytes to [BlobDownloadBridge].
+     * Passing large blobs to the Downloader as a single data: URL would exceed the WebView's
+     * serialization limit ("Cannot serialize data"). https://todo.sr.ht/~gardenapple/mitch/71
+     */
+    private fun startBlobDownload(blobUrl: String, fileName: String) {
+        val nonce = SecureRandom().nextLong().toString()
+        blobDownloadBridge.startBlobDownload(nonce, fileName)
+        webView.evaluateJavascript(
+            """
+            (function() {
+                var toBase64 = function(u8) {
+                    var binary = "";
+                    var subChunk = 0x8000;
+                    for (var i = 0; i < u8.length; i += subChunk) {
+                        binary += String.fromCharCode.apply(null, u8.subarray(i, i + subChunk));
+                    }
+                    return btoa(binary);
+                };
+                fetch(${JSONObject.quote(blobUrl)}).then(function(response) {
+                    return response.arrayBuffer();
+                }).then(function(buffer) {
+                    var bytes = new Uint8Array(buffer);
+                    var chunkSize = 256 * 1024;
+                    mitchBlobJS.onBlobStart(${JSONObject.quote(nonce)});
+                    for (var offset = 0; offset < bytes.length; offset += chunkSize) {
+                        mitchBlobJS.onBlobChunk(${JSONObject.quote(nonce)},
+                            toBase64(bytes.subarray(offset, offset + chunkSize)));
+                    }
+                    mitchBlobJS.onBlobEnd(${JSONObject.quote(nonce)});
+                }).catch(function() {
+                    mitchBlobJS.onBlobError(${JSONObject.quote(nonce)});
+                });
+            })();
+            """, null
+        )
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.getIntExtra(EXTRA_GAME_ID, -1)
@@ -258,9 +309,22 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
     }
 
     private suspend fun showLaunchDialog() {
+        val gameId = intent.getIntExtra(EXTRA_GAME_ID, -1)
+
+        // The game may have been removed from the library or cleaned up since this launcher
+        // shortcut was created. In that case, its row is gone from the database and we must
+        // not try to create an Installation for it (which would violate a foreign key).
+        // https://todo.sr.ht/~gardenapple/mitch/81
+        val db = AppDatabase.getDatabase(this)
+        if (db.gameDao.getGameByIdSync(gameId) == null) {
+            ShortcutManagerCompat.removeDynamicShortcuts(this, listOf(getShortcutId(gameId)))
+            Toast.makeText(this, R.string.popup_web_game_not_available, Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
+
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
 
-        val gameId = intent.getIntExtra(EXTRA_GAME_ID, -1)
         val installedOffline = Mitch.webGameCache.isGameWebCached(this, gameId)
 
         val webCacheEnabled = try {
@@ -353,7 +417,15 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
         this.isCaching = shouldCache
 
         val db = AppDatabase.getDatabase(this)
-        val game = tryFixBackwardsCompatGame(db.gameDao.getGameByIdSync(gameId)!!, this,
+        val gameFromDb = db.gameDao.getGameByIdSync(gameId)
+            ?: run {
+                // See showLaunchDialog; the game's row is missing, so don't crash.
+                ShortcutManagerCompat.removeDynamicShortcuts(this, listOf(getShortcutId(gameId)))
+                Toast.makeText(this, R.string.popup_web_game_not_available, Toast.LENGTH_LONG).show()
+                finish()
+                return
+            }
+        val game = tryFixBackwardsCompatGame(gameFromDb, this,
             webView.settings.userAgentString)
 
         loadGame(game)
@@ -403,6 +475,7 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
     override fun onDestroy() {
         unbindService(connection)
         stopService(Intent(this, GameForegroundService::class.java))
+        blobDownloadBridge.cancel()
         webView.destroy()
         super.onDestroy()
     }
@@ -437,6 +510,105 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
         newIntent.putExtra(EXTRA_GAME_ID, intent.getIntExtra(EXTRA_GAME_ID, -1))
         newIntent.putExtra(EXTRA_LAUNCHED_FROM_INSTALL, intent.getBooleanExtra(EXTRA_LAUNCHED_FROM_INSTALL, false))
         return newIntent
+    }
+
+    /**
+     * Receives the bytes of a blob URL from the page in chunks and saves them to a temporary
+     * file, avoiding the WebView serialization limit for huge data: URLs.
+     * https://todo.sr.ht/~gardenapple/mitch/71
+     */
+    @Keep // prevent this class from being removed by compiler optimizations
+    private class BlobDownloadBridge(private val activity: GameActivity) {
+        private val LOGGING_TAG = "BlobDownload"
+
+        @Volatile
+        private var currentNonce: String? = null
+        @Volatile
+        private var outputFile: File? = null
+        @Volatile
+        private var output: OutputStream? = null
+
+        fun startBlobDownload(nonce: String, fileName: String) {
+            currentNonce = nonce
+            try {
+                val tempDir = File(activity.cacheDir, "blob_downloads")
+                    .resolve(System.nanoTime().toString()).apply { mkdirs() }
+                val file = File(tempDir, fileName)
+                outputFile = file
+                output = FileOutputStream(file)
+            } catch (e: Exception) {
+                Log.e(LOGGING_TAG, "Could not open blob download file", e)
+                currentNonce = null
+            }
+        }
+
+        @JavascriptInterface
+        @Synchronized
+        fun onBlobStart(nonce: String) {
+            if (nonce != currentNonce)
+                Log.e(LOGGING_TAG, "Unexpected blob download start")
+        }
+
+        @JavascriptInterface
+        @Synchronized
+        fun onBlobChunk(nonce: String, base64Chunk: String) {
+            if (nonce != currentNonce)
+                return
+            val output = output ?: return
+            try {
+                output.write(Base64.decode(base64Chunk, Base64.DEFAULT))
+            } catch (e: Exception) {
+                Log.e(LOGGING_TAG, "Failed to write blob chunk", e)
+            }
+        }
+
+        @JavascriptInterface
+        @Synchronized
+        fun onBlobEnd(nonce: String) {
+            if (nonce != currentNonce)
+                return
+            val file = outputFile ?: return
+            currentNonce = null
+            outputFile = null
+            try {
+                output?.close()
+                output = null
+            } catch (e: Exception) {
+                Log.e(LOGGING_TAG, "Failed to close blob download file", e)
+            }
+            activity.launch {
+                DownloadFileListener().onCompleted(
+                    activity, file.name, null,
+                    System.nanoTime(), DownloadType.NORMAL_FILE, file
+                )
+            }
+        }
+
+        @JavascriptInterface
+        @Synchronized
+        fun onBlobError(nonce: String) {
+            if (nonce != currentNonce)
+                return
+            currentNonce = null
+            outputFile = null
+            try {
+                output?.close()
+            } catch (_: Exception) {
+            }
+            output = null
+            Toast.makeText(activity, R.string.notification_download_unknown_error, Toast.LENGTH_LONG)
+                .show()
+        }
+
+        fun cancel() {
+            currentNonce = null
+            outputFile = null
+            try {
+                output?.close()
+            } catch (_: Exception) {
+            }
+            output = null
+        }
     }
 
     inner class GameWebViewClient : MitchWebViewClient() {

@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.Request
+import org.json.JSONException
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -394,41 +395,44 @@ object ItchWebsiteParser {
 
     fun getGameName(doc: Document): String {
         if (ItchWebsiteUtils.isPurchasePage(doc)) {
-            return doc.selectFirst("h1")!!.child(0).text()
+            return doc.selectFirst("h1")?.child(0)?.text() ?: ""
         }
 
         if (ItchWebsiteUtils.isDownloadPage(doc)) {
-            return doc.selectFirst("h2")!!.child(0).text()
+            return doc.selectFirst("h2")?.child(0)?.text() ?: ""
         }
 
         if (ItchWebsiteUtils.isStorePage(doc)) {
             val jsonObjects =
                 doc.head().getElementsByAttributeValue("type", "application/ld+json")
-            val productJsonString: String = jsonObjects[1].html()
-            val jsonObject = JSONObject(productJsonString)
-            return jsonObject.getString("name")
+            if (jsonObjects.size < 2)
+                return ""
+            return try {
+                val jsonObject = JSONObject(jsonObjects[1].html())
+                jsonObject.getString("name")
+            } catch (_: JSONException) {
+                ""
+            }
         }
 
         if (ItchWebsiteUtils.isDevlogPage(doc)) {
             return (doc.selectFirst(".game_title")
-                ?: doc.selectFirst(".game_metadata")!!.selectFirst("h3"))!!
-                .html()
+                ?: doc.selectFirst(".game_metadata")?.selectFirst("h3"))?.html() ?: ""
         }
 
-        throw IllegalArgumentException("Document is not related to game")
+        return ""
     }
 
     fun getUserName(doc: Document): String {
         if (ItchWebsiteUtils.isUserPage(doc)) {
-            return doc.getElementById("profile_header")!!.selectFirst("h1")!!.text()
+            return doc.getElementById("profile_header")?.selectFirst("h1")?.text() ?: ""
         }
 
         throw IllegalArgumentException("Document is not a user page")
     }
 
     fun getForumOrJamName(doc: Document): String {
-        return doc.selectFirst(".jam_title_header, .game_summary h1")?.text()
-            ?: throw IllegalArgumentException("Could not find game jam or forum name")
+        return doc.selectFirst(".jam_title_header, .game_summary h1")?.text() ?: ""
     }
 
     private fun getIframe(doc: Document, placeholder: Element? = null): Element? {

@@ -246,6 +246,7 @@
     <string name="popup_link_copied">Link copied to clipboard.</string>
     <string name="popup_no_file_manager">Failed to pick file. Do you have a file manager installed?</string>
     <string name="popup_web_game_offline_mode">Launching in offline mode</string>
+    <string name="popup_web_game_not_available">This game is no longer available in your library. The shortcut has been removed.</string>
     <string name="popup_web_game_exit">Exit game?</string>
     <string name="dialog_notification_explain_title">Notifications</string>
     <string name="dialog_notification_explain_download">Mitch will send a notification once the download is complete, and can also notify you of future updates.</string>

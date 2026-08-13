@@ -805,7 +805,9 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 
         while (navbarItems.isNotEmpty()) {
             val item = navbarItems.last()!!
-            val url = item.child(0).attr("href")
+            navbarItems.removeAt(navbarItems.size - 1)
+
+            val url = item.children().firstOrNull()?.attr("href") ?: continue
 
             if (item.getElementsByClass("related_games_btn").isNotEmpty()) {
                 appBar.menu.add(APP_BAR_ACTIONS_FROM_HTML, 7, 7, R.string.menu_game_related)
@@ -837,10 +839,12 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
                 // Cannot rely on ItchWebsiteParser, because its method requires the current URL,
                 // and while loading another page, url changes prematurely
                 // (leading to crashes...)
-                val authorName = item.getElementsByClass("mobile_label")[0].text()
+                val authorName =
+                    item.getElementsByClass("mobile_label").firstOrNull()?.text() ?: ""
 
                 val menuItemName =
-                    if (item.getElementsByClass("full_label")[0].text().contains(authorName))
+                    if (item.getElementsByClass("full_label")
+                            .firstOrNull()?.text()?.contains(authorName) == true)
                         resources.getString(R.string.menu_game_author, authorName)
                     else
                         resources.getString(R.string.menu_game_author_generic)
@@ -851,7 +855,7 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
                         true
                     }
             } else if (item.hasClass("jam_entry")) {
-                val menuItemName = item.child(0).text()
+                val menuItemName = item.children().firstOrNull()?.text() ?: continue
 
                 appBar.menu.add(APP_BAR_ACTIONS_GAME_JAM, 0, 0, menuItemName)
                     .setOnMenuItemClickListener {
@@ -861,8 +865,6 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 //                    .setIcon(R.drawable.ic_baseline_emoji_events_24)
 //                    .setShowAsActionFlags(MenuItem.SHOW_AS_ACTION_NEVER)
             }
-
-            navbarItems.removeAt(navbarItems.size - 1)
         }
     }
 
@@ -1028,12 +1030,16 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
             Log.d(LOGGING_TAG, "current info: ${fragment.currentInfo}")
 
             fragment.launch(Dispatchers.Default) {
-                val doc = Jsoup.parse(html)
-                val info = fragment.browseHandler?.onPageVisited(doc, url, userAgent)
-                fragment.currentDoc = doc
-                fragment.currentInfo = info
-                fragment.activity?.runOnUiThread {
-                    fragment.updateUI()
+                try {
+                    val doc = Jsoup.parse(html)
+                    val info = fragment.browseHandler?.onPageVisited(doc, url, userAgent)
+                    fragment.currentDoc = doc
+                    fragment.currentInfo = info
+                    fragment.activity?.runOnUiThread {
+                        fragment.updateUI()
+                    }
+                } catch (e: Exception) {
+                    Log.e(LOGGING_TAG, "Failed to parse page or update UI", e)
                 }
             }
         }
@@ -1092,6 +1098,13 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
                     let elements = document.querySelectorAll("$hiddenElements");
                     for (var element of elements)
                         element.style.display = "none";
+
+                    // Make the screenshot gallery render as a clean full-width column instead of
+                    // a clipped horizontal strip on narrow screens.
+                    // https://todo.sr.ht/~gardenapple/mitch/77
+                    let galleryStyle = document.createElement("style");
+                    galleryStyle.textContent = ".responsive .view_game_page .screenshot_list{white-space:normal!important;overflow:visible!important;display:block!important;text-align:center!important;font-size:inherit!important;margin:0!important}.responsive .view_game_page .screenshot_list img{display:block!important;max-width:100%!important;height:auto!important;margin:0 auto 10px!important}";
+                    document.head.appendChild(galleryStyle);
                         
                     // stop highlighting download links for non-Android OSs
                     const uploads = document.querySelectorAll(".uploads .upload")

@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    # Only release when the pushed commit message starts with "release" (e.g. "release 1").
+    if: startsWith(github.event.head_commit.message, 'release')
+    permissions:
+      contents: write
+
+    env:
+      COMMIT_MSG: ${{ github.event.head_commit.message }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Determine release version
+        id: version
+        run: |
+          version="$(printf '%s' "$COMMIT_MSG" | sed -n 's/^[Rr]elease[[:space:]]*//p' | head -n1)"
+          version="$(printf '%s' "$version" | tr ' ' '-')"
+          if [ -z "$version" ]; then
+            version="${GITHUB_SHA:0:7}"
+          fi
+          title="$(printf '%s' "$COMMIT_MSG" | head -n1)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "title=$title" >> "$GITHUB_OUTPUT"
+
+      # Optional signing. Add these repository secrets to publish a signed, installable APK:
+      #   SIGNING_KEYSTORE_BASE64, SIGNING_STORE_PASSWORD, SIGNING_KEY_ALIAS, SIGNING_KEY_PASSWORD
+      - name: Configure signing (optional)
+        if: ${{ secrets.SIGNING_KEYSTORE_BASE64 != '' }}
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > app/signing.keystore
+          cat > keystore.properties <<EOF
+          storeFile=app/signing.keystore
+          storePassword=$SIGNING_STORE_PASSWORD
+          keyAlias=$SIGNING_KEY_ALIAS
+          keyPassword=$SIGNING_KEY_PASSWORD
+          EOF
+
+      - name: Build release APKs
+        run: ./gradlew assembleFdroidRelease assembleItchioRelease -PversionName=${{ steps.version.outputs.version }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.version }}" \
+            app/build/outputs/apk/fdroid/release/*.apk \
+            app/build/outputs/apk/itchio/release/*.apk \
+            --repo "${{ github.repository }}" \
+            --title "${{ steps.version.outputs.title }}" \
+            --notes "Automated release for commit \`${{ github.sha }}\`"

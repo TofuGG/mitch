@@ -137,6 +137,10 @@ class WebGameCache(context: Context) {
 
     suspend fun makeGameWebCached(context: Context, gameId: Int) {
         val db = AppDatabase.getDatabase(context)
+        // Do not create an Installation whose game_id does not exist in the games table,
+        // as that would violate the foreign key constraint. https://todo.sr.ht/~gardenapple/mitch/81
+        if (db.gameDao.getGameByIdSync(gameId) == null)
+            return
         val install = db.installDao.getWebInstallationForGame(gameId)
 
         val newInstall = Installation(

@@ -24,19 +24,29 @@ open class DownloadFileListener {
     open suspend fun onCompleted(context: Context, fileName: String, uploadId: Int?,
                             downloadOrInstallId: Long, type: DownloadType) {
         val path = Downloader.getNormalDownloadPath(context, downloadOrInstallId)
-        val file = File(path, fileName)
-        val (newUri, fileName) = Mitch.externalFileManager.doMoveToDownloads(context, file)
+        onCompleted(context, fileName, uploadId, downloadOrInstallId, type, File(path, fileName))
+    }
+
+    /**
+     * Notify that a completed download is ready to be moved to the Downloads folder.
+     * Unlike the overload above, the file may live in any directory.
+     * Used for downloads which are streamed from a page (e.g. blob URLs),
+     * see https://todo.sr.ht/~gardenapple/mitch/71
+     */
+    open suspend fun onCompleted(context: Context, fileName: String, uploadId: Int?,
+                                 downloadOrInstallId: Long, type: DownloadType, file: File) {
+        val (newUri, newFileName) = Mitch.externalFileManager.doMoveToDownloads(context, file)
         if (newUri == null) {
             Toast.makeText(context, R.string.dialog_missing_file_title, Toast.LENGTH_LONG)
                 .show()
             return
         }
-        path.deleteRecursively()
+        file.parentFile?.deleteRecursively()
 
         NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID_INSTALL_NEEDED).apply {
             setSmallIcon(R.drawable.ic_mitch_notification)
             setContentTitle(context.resources.getString(R.string.notification_download_complete_title))
-            setContentText(fileName)
+            setContentText(newFileName ?: fileName)
 
             priority = NotificationCompat.PRIORITY_HIGH
             setAutoCancel(true)

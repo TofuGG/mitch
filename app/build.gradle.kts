@@ -58,7 +58,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         versionCode = 20303
-        versionName = "2.3.3"
+        versionName = (project.findProperty("versionName") as? String) ?: "2.3.3"
     }
     buildTypes {
         named("release").configure {
