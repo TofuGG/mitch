@@ -51,9 +51,9 @@ jobs:
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
-          echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > app/signing.keystore
+          echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > signing.keystore
           cat > keystore.properties <<EOF
-          storeFile=app/signing.keystore
+          storeFile=../signing.keystore
           storePassword=$SIGNING_STORE_PASSWORD
           keyAlias=$SIGNING_KEY_ALIAS
           keyPassword=$SIGNING_KEY_PASSWORD

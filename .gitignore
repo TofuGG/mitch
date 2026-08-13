@@ -1,4 +1,6 @@
 keystore.properties
+signing.keystore
+key/
 local.properties
 *.iml
 .gradle/
