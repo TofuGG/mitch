@@ -14,6 +14,7 @@ jobs:
 
     env:
       COMMIT_MSG: ${{ github.event.head_commit.message }}
+      HAS_SIGNING: ${{ secrets.SIGNING_KEYSTORE_BASE64 != '' }}
 
     steps:
       - name: Checkout
@@ -43,7 +44,7 @@ jobs:
       # Optional signing. Add these repository secrets to publish a signed, installable APK:
       #   SIGNING_KEYSTORE_BASE64, SIGNING_STORE_PASSWORD, SIGNING_KEY_ALIAS, SIGNING_KEY_PASSWORD
       - name: Configure signing (optional)
-        if: ${{ secrets.SIGNING_KEYSTORE_BASE64 != '' }}
+        if: env.HAS_SIGNING == 'true'
         env:
           SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
