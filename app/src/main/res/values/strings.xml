@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">Mitch</string>
+    <string name="app_name" translatable="false">Mitchy</string>
     <string name="notification_channel_updates">Game updates</string>
     <string name="notification_channel_install">App install</string>
     <string name="notification_channel_install_desc">Notify when an itch.io app requires installation.</string>

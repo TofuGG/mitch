@@ -50,13 +50,30 @@ class UpdateChecker(private val context: Context) {
         val db = AppDatabase.getDatabase(context)
         val updateChecker = SingleUpdateChecker(db)
         val installations = db.installDao.getFinishedInstallationsAndSubscriptionsSync()
-            .filter { install -> updateChecker.shouldCheck(install) }
         for (install in installations)
             Log.d(LOGGING_TAG, "Will check for $install")
 
+        // Mitchy checks for its own updates via GitHub releases instead of itch.io
+        for (install in installations.filter { it.gameId == Game.MITCH_GAME_ID }) {
+            val game = db.gameDao.getGameByIdSync(install.gameId) ?: continue
+            val result = try {
+                updateChecker.checkMitchUpdate(install, game)
+            } catch (_: CancellationException) {
+                return Result.failure()
+            } catch (e: Exception) {
+                UpdateCheckResult(
+                    install.internalId,
+                    UpdateCheckResult.ERROR,
+                    errorReport = Utils.toString(e)
+                )
+            }
+            handleResult(game, install, result)
+        }
+        val otherInstallations = installations.filter { it.gameId != Game.MITCH_GAME_ID }
+
         // We support multiple installs per game, and we don't want to download the
         // HTML for the same game multiple times
-        val gameIds = installations.map { it.gameId }.toImmutableSet().toImmutableList()
+        val gameIds = otherInstallations.map { it.gameId }.toImmutableSet().toImmutableList()
         val gameAttemptsQueue = LinkedList(db.gameDao.getGamesByIdsSync(gameIds)
             .map { game -> Pair(0, game) })
 
@@ -71,7 +88,7 @@ class UpdateChecker(private val context: Context) {
             }
             val (attempts, game) = gameAttemptsQueue.removeFirst()
             Log.d(LOGGING_TAG, "next in queue: ${game.name} (attempts: $attempts)")
-            val installsForGame = installations.filter { it.gameId == game.gameId }
+            val installsForGame = otherInstallations.filter { it.gameId == game.gameId }
 
             val downloadInfo: SingleUpdateChecker.DownloadInfo
             try {

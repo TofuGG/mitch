@@ -15,13 +15,14 @@ if [ "$(git rev-parse main)" != "$(git rev-parse origin/main)" ]; then
     exit 1
 fi
 
-./gradlew assembleItchioRelease
+./gradlew assembleRelease
 
 if [ "$1" != "$(jq '.elements[0].versionName' --raw-output \
-	< app/build/outputs/apk/itchio/release/output-metadata.json)" ]; then
+	< app/build/outputs/apk/release/output-metadata.json)" ]; then
     echo "Error: version number does not match metadata!"
     exit 1
 fi
 
-butler login
-butler push app/build/outputs/apk/itchio/release/app-itchio-release.apk gardenapple/mitch:android --userversion "$1"
+# TODO: point this at your own itch.io project (this target is the upstream project)
+# butler login
+# butler push app/build/outputs/apk/release/app-release.apk gardenapple/mitch:android --userversion "$1"

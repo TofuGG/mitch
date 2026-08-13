@@ -55,9 +55,6 @@ const val NOTIFICATION_TAG_INSTALL_RESULT_LONG = "NativeInstallResult"
 const val UPDATE_CHECK_TASK_TAG = "update_check"
 const val DB_CLEAN_TASK_TAG = "db_clean"
 
-const val FLAVOR_FDROID = "fdroid"
-const val FLAVOR_ITCHIO = "itchio"
-
 const val HEADER_UA = "User-Agent"
 
 
@@ -125,7 +122,7 @@ class Mitch : Application() {
                             if (BuildConfig.DEBUG)
                                 addHeader(HEADER_UA, "Mitch dev.")
                             else
-                                addHeader(HEADER_UA, "Mitch v${BuildConfig.VERSION_NAME}")
+                                addHeader(HEADER_UA, "Mitchy v${BuildConfig.VERSION_NAME}")
                         }
                         build()
                     })

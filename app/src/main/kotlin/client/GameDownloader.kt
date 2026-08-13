@@ -15,6 +15,7 @@ import garden.appl.mitch.NOTIFICATION_TAG_UPDATE_CHECK
 import garden.appl.mitch.R
 import garden.appl.mitch.Utils
 import garden.appl.mitch.database.AppDatabase
+import garden.appl.mitch.database.game.Game
 import garden.appl.mitch.database.installation.Installation
 import garden.appl.mitch.ui.MitchActivity
 import kotlinx.coroutines.Dispatchers
@@ -78,6 +79,11 @@ object GameDownloader {
 
         val install = db.installDao.getInstallationById(update.installationId)
         val game = db.gameDao.getGameByIdSync(install!!.gameId)!!
+
+        // Mitchy updates itself from a GitHub release asset instead of an itch.io upload
+        if (game.gameId == Game.MITCH_GAME_ID) {
+            return doGitHubUpdate(context, update, install, game)
+        }
 
         val fileRequestUrl = game.storeUrl.toUri().buildUpon().run {
             appendPath("file")
@@ -167,6 +173,50 @@ object GameDownloader {
             downloadUrl,
             null,
             url,
+            contentDisposition,
+            mimeType,
+            contentLength
+        )
+        return UpdateCheckResult.UPDATE_AVAILABLE
+    }
+
+    /**
+     * Downloads a Mitchy update from a GitHub release asset URL.
+     */
+    private suspend fun doGitHubUpdate(
+        context: Context,
+        update: UpdateCheckResult,
+        install: Installation,
+        game: Game
+    ): Int {
+        val downloadUrl = update.downloadPageUrl!!.url
+
+        var mimeType: String? = null
+        var contentDisposition: String? = null
+        var contentLength: Long? = null
+
+        // Make one request here to get metadata,
+        // then another request inside of a DownloadWorker later
+        withContext(Dispatchers.IO) {
+            Mitch.httpClient.newCall(Request.Builder().url(downloadUrl).get().build())
+                .execute().use { response ->
+                    if (!response.isSuccessful)
+                        throw IOException("Unexpected response $response")
+
+                    mimeType = response.header("Content-Type")?.split(';')[0]
+                    contentDisposition = response.header("Content-Disposition")
+                    contentLength = response.body.contentLength()
+                    if (contentLength?.equals(-1L) == true)
+                        contentLength = null
+                }
+        }
+
+        requestDownload(
+            context,
+            install.copy(internalId = 0),
+            downloadUrl,
+            null,
+            downloadUrl,
             contentDisposition,
             mimeType,
             contentLength

@@ -2,18 +2,26 @@ package garden.appl.mitch.client
 
 import android.util.Log
 import garden.appl.mitch.BuildConfig
-import garden.appl.mitch.FLAVOR_ITCHIO
+import garden.appl.mitch.HEADER_UA
 import garden.appl.mitch.ItchWebsiteUtils
+import garden.appl.mitch.Mitch
 import garden.appl.mitch.Utils
 import garden.appl.mitch.database.AppDatabase
 import garden.appl.mitch.database.game.Game
 import garden.appl.mitch.database.installation.Installation
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.Request
+import org.json.JSONObject
 import org.jsoup.nodes.Document
 import java.io.IOException
 
 class SingleUpdateChecker(val db: AppDatabase) {
     companion object {
         private const val LOGGING_TAG: String = "UpdateChecker"
+
+        private const val MITCH_RELEASES_API =
+            "https://api.github.com/repos/TofuGG/mitch/releases/latest"
     }
 
     data class DownloadInfo(
@@ -23,8 +31,68 @@ class SingleUpdateChecker(val db: AppDatabase) {
         val accessDenied: Boolean = false
     )
 
-    fun shouldCheck(installation: Installation): Boolean {
-        return !(installation.gameId == Game.MITCH_GAME_ID && BuildConfig.FLAVOR != FLAVOR_ITCHIO)
+    /**
+     * Checks for updates of Mitchy itself by querying the GitHub releases API of the fork.
+     */
+    suspend fun checkMitchUpdate(install: Installation, game: Game): UpdateCheckResult {
+        try {
+            val request = Request.Builder()
+                .url(MITCH_RELEASES_API)
+                .header(HEADER_UA, "Mitchy v${BuildConfig.VERSION_NAME}")
+                .get()
+                .build()
+            val body: String = withContext(Dispatchers.IO) {
+                Mitch.httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful)
+                        throw IOException("GitHub API returned ${response.code}")
+                    response.body?.string() ?: throw IOException("Empty response body")
+                }
+            }
+
+            val release = JSONObject(body)
+            val tagName = release.getString("tag_name")
+            val apkUrl = getApkAssetUrl(release)
+                ?: return UpdateCheckResult(
+                    install.internalId,
+                    UpdateCheckResult.ERROR,
+                    errorReport = "No APK asset in the latest GitHub release"
+                )
+
+            if (Utils.isVersionNewer(tagName, install.version ?: "0") != true) {
+                return UpdateCheckResult(install.internalId, UpdateCheckResult.UP_TO_DATE)
+            }
+
+            return UpdateCheckResult(
+                install.internalId,
+                downloadPageUrl = ItchWebsiteParser.DownloadUrl(
+                    url = apkUrl,
+                    isPermanent = true,
+                    isStorePage = false
+                ),
+                availableUpdateInstall = install.copy(version = tagName)
+            )
+        } catch (e: Exception) {
+            Log.e(LOGGING_TAG, "Error checking for Mitchy updates", e)
+            return UpdateCheckResult(
+                install.internalId,
+                UpdateCheckResult.ERROR,
+                errorReport = Utils.toString(e)
+            )
+        }
+    }
+
+    private fun getApkAssetUrl(release: JSONObject): String? {
+        val assets = release.getJSONArray("assets")
+        var unsignedFallback: String? = null
+        for (i in 0 until assets.length()) {
+            val asset = assets.getJSONObject(i)
+            val name = asset.getString("name")
+            if (!name.endsWith(".apk")) continue
+            val url = asset.getString("browser_download_url")
+            if (!name.contains("-unsigned")) return url
+            if (unsignedFallback == null) unsignedFallback = url
+        }
+        return unsignedFallback
     }
 
     suspend fun getDownloadInfo(currentGame: Game): DownloadInfo {
@@ -92,9 +160,6 @@ class SingleUpdateChecker(val db: AppDatabase) {
         updateCheckDoc: Document,
         downloadPageInfo: ItchWebsiteParser.DownloadUrl
     ): UpdateCheckResult {
-        if (!shouldCheck(currentInstall))
-            throw IllegalArgumentException("Should not be checking updates using itch.io for this")
-
         logD(currentGame, "Checking updates for ${currentGame.name}")
         logD(currentGame, "Current install: $currentInstall")
 

@@ -76,13 +76,6 @@ android {
             applicationIdSuffix = ".debug"
         }
     }
-    flavorDimensions.add("platform")
-    productFlavors {
-        create("fdroid") {
-        }
-        create("itchio") {
-        }
-    }
     packaging {
         resources.excludes.add("META-INF/atomicfu.kotlin_module")
     }

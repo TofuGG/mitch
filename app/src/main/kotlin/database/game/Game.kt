@@ -61,7 +61,7 @@ data class Game(
 ) {
     companion object {
         const val MITCH_GAME_ID = 544475
-        const val MITCH_STORE_PAGE = "https://gardenapple.itch.io/mitch"
+        const val MITCH_STORE_PAGE = "https://github.com/TofuGG/mitch"
 
         const val TABLE_NAME = "games"
 

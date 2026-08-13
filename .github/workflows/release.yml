@@ -59,16 +59,15 @@ jobs:
           keyPassword=$SIGNING_KEY_PASSWORD
           EOF
 
-      - name: Build release APKs
-        run: ./gradlew assembleFdroidRelease assembleItchioRelease -PversionName=${{ steps.version.outputs.version }}
+      - name: Build release APK
+        run: ./gradlew assembleRelease -PversionName=${{ steps.version.outputs.version }}
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ steps.version.outputs.version }}" \
-            app/build/outputs/apk/fdroid/release/*.apk \
-            app/build/outputs/apk/itchio/release/*.apk \
+            app/build/outputs/apk/release/*.apk \
             --repo "${{ github.repository }}" \
             --title "${{ steps.version.outputs.title }}" \
             --notes "Automated release for commit \`${{ github.sha }}\`"

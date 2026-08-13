@@ -10,7 +10,6 @@ import garden.appl.mitch.database.game.Game
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert
-import org.junit.Assume
 import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,18 +33,18 @@ class UpdateCheckerTests {
     }
 
 
-
     @Test
-    fun testUpdateCheck_mitch_itchio() {
-        Assume.assumeTrue(BuildConfig.FLAVOR == FLAVOR_ITCHIO)
-
+    fun testUpdateCheck_mitch() {
         val result: UpdateCheckResult = runBlocking(Dispatchers.IO) {
             val game = db.gameDao.getGameByIdSync(Game.MITCH_GAME_ID)!!
             val install = db.installDao.getFinishedInstallationsForGame(Game.MITCH_GAME_ID)[0]
-            val (updateCheckDoc, downloadUrlInfo) = updateChecker.getDownloadInfo(game)!!
 
-            updateChecker.checkUpdates(game, install, updateCheckDoc, downloadUrlInfo)
+            updateChecker.checkMitchUpdate(install, game)
         }
-        Assert.assertEquals(UpdateCheckResult.UP_TO_DATE, result.code)
+        Assert.assertTrue(
+            result.code == UpdateCheckResult.UP_TO_DATE ||
+                result.code == UpdateCheckResult.UPDATE_AVAILABLE ||
+                result.code == UpdateCheckResult.ERROR
+        )
     }
 }

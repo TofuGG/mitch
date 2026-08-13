@@ -8,7 +8,6 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import garden.appl.mitch.BuildConfig
-import garden.appl.mitch.FLAVOR_FDROID
 import garden.appl.mitch.PREF_DB_RAN_CLEANUP_ONCE
 import garden.appl.mitch.database.game.Game
 import garden.appl.mitch.database.game.GameDao
@@ -67,15 +66,10 @@ abstract class AppDatabase : RoomDatabase() {
 
 
     suspend fun addMitchToDatabaseIfNeeded(context: Context) {
-        if (BuildConfig.FLAVOR == FLAVOR_FDROID) {
-            installDao.deleteFinishedInstallation(context.packageName)
-            return
-        }
-
         val game = Game(
             gameId = Game.MITCH_GAME_ID,
-            name = "Mitch",
-            author = "gardenapple",
+            name = "Mitchy",
+            author = "TofuGG",
             storeUrl = Game.MITCH_STORE_PAGE,
             thumbnailUrl = "https://img.itch.zone/aW1nLzY2OTY1OTIucG5n/315x250%23c/iuehUL.png",
             downloadPageUrl = null,
