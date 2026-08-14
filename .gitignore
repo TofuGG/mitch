@@ -2,6 +2,9 @@ keystore.properties
 signing.keystore
 key/
 local.properties
+# Local-only commit conventions
+AGENTS.md
+.gitmessage
 *.iml
 .gradle/
 .kotlin/
