@@ -40,6 +40,17 @@ class UpdateChecker(private val context: Context) {
 
         private const val DELAY_MILLIS: Long = 2000
         private const val ATTEMPTS = 3
+        // Hard sleep after itch.io answers with 429 Too Many Requests, so the rate
+        // limit has a chance to reset before the next attempt.
+        private const val RATE_LIMIT_BACKOFF_MILLIS: Long = 30_000
+    }
+
+    /**
+     * @return true if [e] signals an HTTP 429 (rate limit) response from itch.io.
+     */
+    private fun isRateLimited(e: Exception): Boolean {
+        val message = e.message ?: return false
+        return message.contains("code=429") || message.contains("429 Too Many Requests")
     }
 
     suspend fun checkUpdates(): Result {
@@ -86,12 +97,14 @@ class UpdateChecker(private val context: Context) {
         var success = true
 
         while (gameAttemptsQueue.isNotEmpty()) {
+            val (attempts, game) = gameAttemptsQueue.removeFirst()
             if (!first) {
-                delay(DELAY_MILLIS)
+                // Back off exponentially with each retry so big libraries don't hammer
+                // itch.io's rate limit (which caused update checks to fail with 429).
+                delay(DELAY_MILLIS shl attempts.coerceIn(0, 3))
             } else {
                 first = false
             }
-            val (attempts, game) = gameAttemptsQueue.removeFirst()
             Log.d(LOGGING_TAG, "next in queue: ${game.name} (attempts: $attempts)")
             val installsForGame = otherInstallations.filter { it.gameId == game.gameId }
 
@@ -106,6 +119,11 @@ class UpdateChecker(private val context: Context) {
                 break
             } catch (e: Exception) {
                 if (attempts < ATTEMPTS) {
+                    if (isRateLimited(e)) {
+                        // itch.io rate-limited us; sleep so the limit can reset before retrying.
+                        Log.w(LOGGING_TAG, "Rate limited while checking ${game.name}, backing off")
+                        delay(RATE_LIMIT_BACKOFF_MILLIS)
+                    }
                     gameAttemptsQueue.addLast(Pair(attempts + 1, game))
                 } else {
                     for (install in installsForGame) {

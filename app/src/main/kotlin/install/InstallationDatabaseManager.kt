@@ -54,6 +54,11 @@ class InstallationDatabaseManager(val context: Context)  {
                 )
                 Log.d(LOGGING_TAG, "New install: $newInstall")
                 Installations.deleteOutdatedInstalls(context, pendingInstall)
+                // A renamed game page or re-uploaded file must not fork the library into
+                // duplicate entries of the same installed app: drop any other finished
+                // installs that resolve to the same package, keeping only the new one.
+                // (mentioned in https://itch.io/t/1952022/bug-updatelibrary-duplicates)
+                db.installDao.deleteFinishedInstallsByPackage(packageName!!)
                 db.installDao.delete(pendingInstall)
                 db.installDao.insert(newInstall)
             }

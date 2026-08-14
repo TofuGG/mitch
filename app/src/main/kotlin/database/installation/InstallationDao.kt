@@ -31,6 +31,11 @@ abstract class InstallationDao {
             OR $STATUS = $STATUS_SUBSCRIPTION""")
     abstract suspend fun getFinishedInstallationsAndSubscriptionsSync(): List<Installation>
 
+    @Query("""
+        DELETE FROM $TABLE_NAME
+        WHERE $PACKAGE_NAME = :packageName AND $STATUS = $STATUS_INSTALLED""")
+    abstract suspend fun deleteFinishedInstallsByPackage(packageName: String)
+
     @Query("SELECT * FROM $TABLE_NAME WHERE $GAME_ID = :gameId AND $STATUS = $STATUS_INSTALLED")
     abstract suspend fun getFinishedInstallationsForGame(gameId: Int): List<Installation>
 

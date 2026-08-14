@@ -80,6 +80,12 @@ object PreferenceWebCacheEnable {
     const val DEFAULT = ASK
 }
 //const val PREF_WEB_CACHE_DIALOG_HIDE = "mitch.web_cache_dialog_hide"
+// Last page the Browse tab was on, so it can be restored after the app process dies.
+const val PREF_BROWSE_LAST_URL = "mitch.browse_last_url"
+// Client-side genre/tag exclusion filters for catalogue pages, persisted across
+// navigation so they aren't lost when viewing a game and coming back.
+const val PREF_BROWSE_GENRES_FILTER = "mitch.browse_genres_exclusion_filter"
+const val PREF_BROWSE_TAGS_FILTER = "mitch.browse_tags_exclusion_filter"
 const val PREF_WEB_CACHE_UPDATE = "mitch.web_cache_update"
 object PreferenceWebCacheUpdate {
     const val NEVER = "never"

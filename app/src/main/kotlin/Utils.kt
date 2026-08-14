@@ -34,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.PrintWriter
@@ -220,6 +221,44 @@ object Utils {
     } catch (e: Exception) {
         Log.d("Utils", "File is not a valid ZIP archive: ${file.name}", e)
         false
+    }
+
+    /**
+     * Some Android games ship inside a .zip archive containing the APK rather than as a
+     * bare .apk file. Extracts the largest `.apk` entry from [zipFile] into the same
+     * directory and deletes the archive on success, or returns null if there is no APK inside.
+     */
+    fun extractApkFromZip(zipFile: File?): File? {
+        if (zipFile == null || !zipFile.isFile || !isValidZip(zipFile))
+            return null
+        return try {
+            java.util.zip.ZipFile(zipFile).use { zip ->
+                val apkEntry = zip.entries().asSequence()
+                    .filter { !it.isDirectory && it.name.endsWith(".apk", ignoreCase = true) }
+                    .maxByOrNull { it.size }
+                    ?: return null
+
+                val baseName = apkEntry.name.substringAfterLast('/')
+                    .filter { it.isLetterOrDigit() || it == '.' || it == '_' || it == '-' }
+                    .ifEmpty { "game.apk" }
+                val outFile = File(zipFile.parentFile, baseName)
+
+                FileOutputStream(outFile).use { fos ->
+                    zip.getInputStream(apkEntry).use { input -> input.copyTo(fos) }
+                }
+
+                if (isValidZip(outFile)) {
+                    zipFile.delete()
+                    outFile
+                } else {
+                    outFile.delete()
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            Log.d("Utils", "Failed to extract APK from ${zipFile.name}", e)
+            null
+        }
     }
 
     /**

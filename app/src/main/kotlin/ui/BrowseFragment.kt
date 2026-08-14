@@ -49,6 +49,9 @@ import com.leinardi.android.speeddial.SpeedDialView
 import com.leinardi.android.speeddial.SpeedDialView.OnChangeListener
 import garden.appl.mitch.BuildConfig
 import garden.appl.mitch.ItchWebsiteUtils
+import garden.appl.mitch.PREF_BROWSE_GENRES_FILTER
+import garden.appl.mitch.PREF_BROWSE_LAST_URL
+import garden.appl.mitch.PREF_BROWSE_TAGS_FILTER
 import garden.appl.mitch.PREF_DEBUG_WEB_GAMES_IN_BROWSE_TAB
 import garden.appl.mitch.PREF_SCROLL_TO_TOP_ENABLED
 import garden.appl.mitch.PREF_TAG_EXCLUSION_ENABLED
@@ -108,13 +111,15 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 
     /**
      * Game genres to hide from a catalogue page.
-     * Set to null (and subsequently the list is forgotten) when we navigate to a non-catalogue page
+     * Persisted in SharedPreferences so the filter is kept when navigating to a game page
+     * and back, and across app restarts.
      */
     private var genresExclusionFilter: Set<ItchGenre>? = null
 
     /**
      * Game tags to hide from a catalogue page, by localized tag name.
-     * Set to null (and subsequently the list is forgotten) when we navigate to a non-catalogue page
+     * Persisted in SharedPreferences so the filter is kept when navigating to a game page
+     * and back, and across app restarts.
      */
     private var tagsExclusionFilter: Set<String>? = null
 
@@ -136,10 +141,15 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Restore the exclusion filters. A saved instance state (e.g. a rotation) takes
+        // precedence; otherwise fall back to the last persisted values so the filters
+        // survive navigation away from the catalogue and app restarts.
         genresExclusionFilter = savedInstanceState?.getStringArray(GENRES_EXCLUSION_FILTER)?.map {
             ItchGenre.valueOf(it)
         }?.toSet()
         tagsExclusionFilter = savedInstanceState?.getStringArray(TAGS_EXCLUSION_FILTER)?.toSet()
+        if (genresExclusionFilter == null && tagsExclusionFilter == null)
+            loadFiltersFromPrefs()
     }
 
     override fun onCreateView(
@@ -335,10 +345,12 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
                             }
                             setPositiveButton(R.string.dialog_apply) { _, _ ->
                                 tagsExclusionFilter = currentExclusions.toSet()
+                                saveFiltersToPrefs()
                                 updateUI()
                             }
                             setNegativeButton(R.string.dialog_reset) { _, _ ->
                                 tagsExclusionFilter = emptySet()
+                                saveFiltersToPrefs()
                                 updateUI()
                             }
                             create()
@@ -375,10 +387,12 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
                         setView(listView)
                         setPositiveButton(R.string.dialog_apply) { _, _ ->
                             genresExclusionFilter = newExclusionFilter
+                            saveFiltersToPrefs()
                             updateUI()
                         }
                         setNegativeButton(R.string.dialog_reset) { _, _ ->
                             genresExclusionFilter = emptySet()
+                            saveFiltersToPrefs()
                             updateUI()
                         }
                         create()
@@ -397,11 +411,20 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 
         // Load page, this will also update the UI
         val webViewBundle = savedInstanceState?.getBundle(WEB_VIEW_STATE_KEY)
-        Utils.logDebug(LOGGING_TAG, "Restoring $webViewBundle")
+        val lastUrl = PreferenceManager.getDefaultSharedPreferences(requireContext())
+            .getString(PREF_BROWSE_LAST_URL, null)
+        Utils.logDebug(LOGGING_TAG, "Restoring $webViewBundle (last URL: $lastUrl)")
         if (webViewBundle != null) {
             webView.restoreState(webViewBundle)
+            // WebView.restoreState can be unreliable after the process was killed: it may
+            // revive an old history entry ("the page I was browsing yesterday"). If the
+            // restored page doesn't match the last page we actually saw, reload the saved URL.
+            if (lastUrl != null && webView.url != lastUrl) {
+                Log.d(LOGGING_TAG, "Restored page ${webView.url} != saved page $lastUrl, reloading")
+                loadUrl(lastUrl)
+            }
         } else {
-            loadUrl(ItchWebsiteUtils.getMainBrowsePage(requireContext()))
+            loadUrl(lastUrl ?: ItchWebsiteUtils.getMainBrowsePage(requireContext()))
         }
     }
 
@@ -441,6 +464,14 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 //        webView.pauseTimers()
         CookieManager.getInstance().flush()
         SessionCookieStore.capture(requireContext())
+
+        // Remember the current page so it can be restored if the process is killed
+        // while the app is in the background (WebView.saveState alone is unreliable).
+        webView.url?.let { url ->
+            PreferenceManager.getDefaultSharedPreferences(requireContext()).edit()
+                .putString(PREF_BROWSE_LAST_URL, url)
+                .apply()
+        }
     }
 
     override fun onResume() {
@@ -482,6 +513,34 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
     }
 
     /**
+     * Restores the genre/tag exclusion filters from SharedPreferences.
+     */
+    private fun loadFiltersFromPrefs() {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        genresExclusionFilter = prefs.getStringSet(PREF_BROWSE_GENRES_FILTER, null)
+            ?.mapNotNull { name -> runCatching { ItchGenre.valueOf(name) }.getOrNull() }
+            ?.toSet()
+        tagsExclusionFilter = prefs.getStringSet(PREF_BROWSE_TAGS_FILTER, null)?.toSet()
+    }
+
+    /**
+     * Persists the genre/tag exclusion filters to SharedPreferences so they survive
+     * navigation away from the catalogue page and app restarts.
+     */
+    private fun saveFiltersToPrefs() {
+        val editor = PreferenceManager.getDefaultSharedPreferences(requireContext()).edit()
+        if (genresExclusionFilter != null)
+            editor.putStringSet(PREF_BROWSE_GENRES_FILTER, genresExclusionFilter!!.map { it.name }.toSet())
+        else
+            editor.remove(PREF_BROWSE_GENRES_FILTER)
+        if (tagsExclusionFilter != null)
+            editor.putStringSet(PREF_BROWSE_TAGS_FILTER, tagsExclusionFilter!!)
+        else
+            editor.remove(PREF_BROWSE_TAGS_FILTER)
+        editor.apply()
+    }
+
+    /**
      * Adapts the app's UI to the theme of the current web page.
      */
     fun updateUI() {
@@ -516,8 +575,12 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         val gameButtonInfo = mainActivity.binding.gameButtonInfo
 
         updateFiltersAndAction(speedDial)
-        filterExcludedGenres()
-        filterExcludedTags()
+        // Exclusion filters only make sense on catalogue pages; since they are now kept
+        // across navigation, don't run their JS elsewhere.
+        if (url?.let { ItchWebsiteUtils.isGameCataloguePage(Uri.parse(it)) } == true) {
+            filterExcludedGenres()
+            filterExcludedTags()
+        }
 
         if (doc?.let { ItchWebsiteUtils.isGamePage(doc) } == true) {
             // Hide app's navbar after hiding web navbar
@@ -805,9 +868,11 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         val uri = Uri.parse(url)
         val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
         if (ItchWebsiteUtils.isGameCataloguePage(uri)) {
-            val genreExcludeSet = genresExclusionFilter ?: emptySet<ItchGenre>().also {
-                genresExclusionFilter = emptySet()
-            }
+            // Normally restored in onCreate; reload from prefs just in case updateUI
+            // ever runs before that.
+            if (genresExclusionFilter == null && tagsExclusionFilter == null)
+                loadFiltersFromPrefs()
+            val genreExcludeSet = genresExclusionFilter ?: emptySet<ItchGenre>()
             speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_filter_exclude_genres, R.drawable.ic_baseline_filter_alt_24).run {
                 if (genreExcludeSet.isEmpty())
                     setLabel(R.string.browser_filter_exclude_genres)
@@ -829,8 +894,8 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
                 })
             }
         } else {
-            genresExclusionFilter = null
-            tagsExclusionFilter = null
+            // Don't forget the exclusion filters here: they must survive a round trip to a
+            // game page and back. Just hide the FAB items, which only apply to catalogue pages.
             speedDial.removeActionItemById(R.id.browser_filter_exclude_genres)
             speedDial.removeActionItemById(R.id.browser_filter_exclude_tags)
         }

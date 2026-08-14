@@ -117,18 +117,46 @@ class InstallationDownloadFileListener : DownloadFileListener() {
             return
         }
 
+        if (type == DownloadType.INSTALL_MISC) {
+            Installations.deleteOutdatedInstalls(context, pendingInstall)
+
+            // Some Android games ship inside a .zip archive rather than as a bare .apk.
+            // Extract the APK and install it like a regular APK download, otherwise the
+            // game never shows up as installed and its updates can't be tracked.
+            // (mentioned in https://itch.io/t/1990557/doesnt-detect-android-game-in-zip-file-as-installed)
+            val zipFile = uploadId?.let { downloadFileManager.getPendingFile(it) }
+            val extractedApk = Utils.extractApkFromZip(zipFile)
+            if (extractedApk != null) {
+                val packageName = try {
+                    context.packageManager.getPackageArchiveInfo(extractedApk.absolutePath, 0)?.packageName
+                } catch (e: Exception) {
+                    null
+                }
+                val installToComplete = if (packageName != null && pendingInstall.packageName.isNullOrEmpty())
+                    pendingInstall.copy(packageName = packageName)
+                else
+                    pendingInstall
+                db.installDao.update(installToComplete)
+
+                createResultNotification(context, fileName, DownloadType.INSTALL_APK, extractedApk,
+                    downloadOrInstallId, null, null)
+                Mitch.databaseHandler.onDownloadComplete(installToComplete, DownloadType.INSTALL_APK)
+                return
+            }
+
+            downloadFileManager.replacePendingFile(uploadId!!)
+            val notificationFile = downloadFileManager.getDownloadedFile(uploadId)
+            createResultNotification(context, fileName, type, notificationFile, downloadOrInstallId, null, null)
+            Mitch.databaseHandler.onDownloadComplete(pendingInstall, type)
+            return
+        }
+
         val notificationFile: File? = when (type) {
             DownloadType.INSTALL_APK -> {
                 val file = uploadId?.let { downloadFileManager.getPendingFile(it) }
                 if (file == null)
                     Log.e(LOGGING_TAG, "APK file is missing for upload $uploadId after download completed")
                 file
-            }
-            DownloadType.INSTALL_MISC -> {
-                Installations.deleteOutdatedInstalls(context, pendingInstall)
-                downloadFileManager.replacePendingFile(uploadId!!)
-
-                downloadFileManager.getDownloadedFile(uploadId)
             }
             else -> null
         }
