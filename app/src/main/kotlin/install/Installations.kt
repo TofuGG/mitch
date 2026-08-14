@@ -267,7 +267,13 @@ object Installations {
 
     suspend fun tryUpdatePendingInstallData(context: Context, installId: Long, apk: File) {
         val db = AppDatabase.getDatabase(context)
-        val install = db.installDao.getPendingInstallationByInstallId(installId)!!
+        val install = db.installDao.getPendingInstallationByInstallId(installId)
+            ?: run {
+                // The install finished, was cancelled, or the row was removed while the
+                // APK was being streamed. Don't crash the install flow over it.
+                Log.w(LOGGING_TAG, "Pending installation $installId is gone while streaming, skipping package-name update")
+                return
+            }
         db.installDao.update(install.copy(
             packageName = tryGetPackageName(context, apk.path)
         ))

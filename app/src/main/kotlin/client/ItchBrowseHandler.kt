@@ -178,8 +178,11 @@ class ItchBrowseHandler(private val context: MitchActivity, private val scope: C
         val mimeType = currentDownloadMimeType
         val contentLength = currentDownloadContentLength
 
+        // contentLength is intentionally NOT required: itch.io often serves files without a
+        // Content-Length (chunked/redirected downloads), and waiting for it would make the
+        // download never start. The downloader handles unknown lengths fine.
         if (downloadPageDoc == null || downloadPageUrl == null || uploadId == null ||
-            downloadUrl == null || userAgent == null || contentLength == null ||
+            downloadUrl == null || userAgent == null ||
             contentDisposition == null || mimeType == null) {
             // Some data is still missing (e.g. the download page document hasn't been parsed yet,
             // or the download button click was not intercepted). The other callbacks
@@ -255,7 +258,7 @@ class ItchBrowseHandler(private val context: MitchActivity, private val scope: C
         userAgent: String,
         contentDisposition: String,
         mimeType: String,
-        contentLength: Long
+        contentLength: Long?
     ) {
         clickedUploadId = null
         currentDownloadUrl = null

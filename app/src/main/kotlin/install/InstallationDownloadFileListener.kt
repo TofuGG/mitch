@@ -144,7 +144,14 @@ class InstallationDownloadFileListener : DownloadFileListener() {
                 return
             }
 
-            downloadFileManager.replacePendingFile(uploadId!!)
+            val uploadId = uploadId
+            if (uploadId == null) {
+                // Can't proceed without knowing which upload this zip belongs to; leave the
+                // row pending so the user can retry instead of crashing the worker.
+                Log.e(LOGGING_TAG, "No upload ID for completed $type download, leaving row pending")
+                return
+            }
+            downloadFileManager.replacePendingFile(uploadId)
             val notificationFile = downloadFileManager.getDownloadedFile(uploadId)
             createResultNotification(context, fileName, type, notificationFile, downloadOrInstallId, null, null)
             Mitch.databaseHandler.onDownloadComplete(pendingInstall, type)

@@ -145,9 +145,12 @@ class SingleUpdateChecker(val db: AppDatabase) {
 
         // Update game metadata, if possible
         storePageDoc?.let { doc ->
-            val game = ItchWebsiteParser.getGameInfoForStorePage(doc, currentGame.storeUrl)!!
-            db.gameDao.update(game)
-            logD(currentGame, "Inserted new game info: $game")
+            // The page may be a removed/404 game that no longer parses; don't crash the
+            // whole update check over it, just keep the stored metadata.
+            ItchWebsiteParser.getGameInfoForStorePage(doc, currentGame.storeUrl)?.let { game ->
+                db.gameDao.update(game)
+                logD(currentGame, "Inserted new game info: $game")
+            }
         }
 
         return DownloadInfo(

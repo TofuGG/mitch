@@ -213,7 +213,16 @@ class Mitch : Application() {
         }
 
         override fun onActivityPaused(activity: Activity) {
+            if (foregroundActivityCount == 0)
+                return
             foregroundActivityCount--
+            if (foregroundActivityCount == 0) {
+                // The whole app is going to the background: snapshot session cookies so a
+                // process kill right after this can't lose an itch.io login made on any screen
+                // (game player, GitHub OAuth, etc.), not just the Browse tab.
+                // (mentioned in https://itch.io/t/3985413/mitch-is-not-maintaining-itch-logins)
+                SessionCookieStore.capture(activity.applicationContext)
+            }
         }
 
         override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}

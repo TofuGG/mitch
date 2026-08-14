@@ -35,7 +35,13 @@ class NativeInstaller : AbstractInstaller() {
     override suspend fun requestInstall(context: Context, downloadId: Long, apkFile: File) {
         val db = AppDatabase.getDatabase(context)
 
-        val pendingInstall = db.installDao.getPendingInstallationByDownloadId(downloadId)!!
+        val pendingInstall = db.installDao.getPendingInstallationByDownloadId(downloadId)
+            ?: run {
+                // The pending installation was removed (cancelled/cleared) between the download
+                // completing and the install being requested. Bail out instead of crashing.
+                Log.e(LOGGING_TAG, "Pending installation $downloadId is gone, aborting native install")
+                return
+            }
         val installId = makeInstallId(pendingInstall.uploadId)
         Log.d(LOGGING_TAG, "Turning ${pendingInstall.uploadId} into $installId")
         Mitch.databaseHandler.onInstallStart(downloadId, installId)
