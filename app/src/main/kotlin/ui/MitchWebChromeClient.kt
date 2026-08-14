@@ -87,7 +87,7 @@ abstract class MitchWebChromeClient(
             setView(binding.root)
 
             setPositiveButton(android.R.string.ok) { _, _ ->
-                result.confirm(binding.message.text.toString())
+                result.confirm(binding.input.text.toString())
             }
             setNegativeButton(android.R.string.cancel) { _, _ ->
                 result.cancel()

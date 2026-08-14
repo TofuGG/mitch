@@ -7,6 +7,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.await
@@ -26,6 +27,7 @@ import garden.appl.mitch.install.SessionInstaller
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
@@ -144,9 +146,15 @@ object Downloader {
         return true
     }
 
-    fun checkIsDownloading(context: Context, downloadId: Long): Boolean {
-        return WorkManager.getInstance(context)
-            .getWorkInfosForUniqueWork(getWorkName(downloadId)).isDone
+    suspend fun checkIsDownloading(context: Context, downloadId: Long): Boolean {
+        // The future's isDone only tells whether the query itself resolved; the actual
+        // "still downloading" signal is a WorkInfo that is enqueued or running. Otherwise
+        // the daily cleanup would never clear rows left in STATUS_DOWNLOADING by a dead process.
+        val workInfos = WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWorkFlow(getWorkName(downloadId)).first()
+        return workInfos.any { workInfo ->
+            workInfo.state == WorkInfo.State.RUNNING || workInfo.state == WorkInfo.State.ENQUEUED
+        }
     }
 
     fun cancelAll(context: Context) {

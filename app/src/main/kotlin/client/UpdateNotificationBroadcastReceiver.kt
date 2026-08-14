@@ -21,13 +21,22 @@ class UpdateNotificationBroadcastReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         Log.d(LOGGING_TAG, "onReceive")
-        val extras = intent.extras!!
+        val extras = intent.extras ?: run {
+            Log.w(LOGGING_TAG, "No extras in update notification intent, ignoring")
+            return
+        }
 
         val installId = extras.getInt(EXTRA_INSTALL_ID)
 
         runBlocking(Dispatchers.IO) {
             val db = AppDatabase.getDatabase(context)
-            val updateCheckResult = db.updateCheckDao.getUpdateCheckResult(installId)!!
+            val updateCheckResult = db.updateCheckDao.getUpdateCheckResult(installId)
+                ?: run {
+                    // Stale notification: the update was already installed (the row is
+                    // deleted) or the check result was cleaned up. Don't crash the app.
+                    Log.w(LOGGING_TAG, "No update check result for install $installId, ignoring")
+                    return@runBlocking
+                }
             GameDownloader.startUpdate(context, updateCheckResult)
         }
     }

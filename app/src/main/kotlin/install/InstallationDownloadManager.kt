@@ -68,7 +68,7 @@ class InstallationDownloadManager(context: Context) {
         }
     }
 
-    fun checkIsDownloading(context: Context, install: Installation): Boolean {
+    suspend fun checkIsDownloading(context: Context, install: Installation): Boolean {
         if (install.status != Installation.STATUS_DOWNLOADING
             && install.status != Installation.STATUS_READY_TO_INSTALL)
             return false

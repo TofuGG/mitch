@@ -354,13 +354,23 @@ object Utils {
         if (version1 == version2) return 0
         val version1Parts = parseVersionIntoParts(version1) ?: return null
         val version2Parts = parseVersionIntoParts(version2) ?: return null
-        for (i in version2Parts.indices) {
-            if (i >= version1Parts.size) return -1
+        val minSize = minOf(version1Parts.size, version2Parts.size)
+        for (i in 0 until minSize) {
             if (version1Parts[i] < version2Parts[i]) return -1
             if (version1Parts[i] > version2Parts[i]) return 1
         }
-        if (version1Parts.size > version2Parts.size)
-            return 1
+        // The shorter version's trailing components are implicitly zero: "1.0" equals "1.0.0",
+        // otherwise a trailing-zero difference would trigger a spurious "update available".
+        if (version1Parts.size < version2Parts.size) {
+            for (i in minSize until version2Parts.size)
+                if (version2Parts[i] != 0) return -1
+            return 0
+        }
+        if (version1Parts.size > version2Parts.size) {
+            for (i in minSize until version1Parts.size)
+                if (version1Parts[i] != 0) return 1
+            return 0
+        }
         return 0
     }
 

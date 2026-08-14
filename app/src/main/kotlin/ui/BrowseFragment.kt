@@ -432,9 +432,12 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
      * @return true if the user can't go back in the web history
      */
     fun onBackPressed(): Boolean {
-        chromeClient.customViewCallback?.let { callback ->
-            callback.onCustomViewHidden()
-            return@onBackPressed true
+        // Leave fullscreen before doing anything else, and actually restore the
+        // normal UI — otherwise back would just dismiss the custom view while the
+        // fullscreen overlay stayed in place (or, previously, close the whole app).
+        if (isWebFullscreen) {
+            chromeClient.onHideCustomView()
+            return false
         }
 
         if (webView.canGoBack()) {
@@ -877,6 +880,11 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
             if (genresExclusionFilter == null && tagsExclusionFilter == null)
                 loadFiltersFromPrefs()
             val genreExcludeSet = genresExclusionFilter ?: emptySet<ItchGenre>()
+            // updateUI runs on every page load/resize/resume, and addActionItem appends
+            // without deduplicating, so drop any existing filter actions first — otherwise
+            // the FAB menu accumulates one duplicate filter button per UI update.
+            while (speedDial.removeActionItemById(R.id.browser_filter_exclude_genres) != null) { }
+            while (speedDial.removeActionItemById(R.id.browser_filter_exclude_tags) != null) { }
             speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_filter_exclude_genres, R.drawable.ic_baseline_filter_alt_24).run {
                 if (genreExcludeSet.isEmpty())
                     setLabel(R.string.browser_filter_exclude_genres)
@@ -1491,7 +1499,11 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 
             customView = null
             isForcedFullscreen = false
+            // Tell the WebView the custom view is gone, otherwise it keeps thinking the
+            // page is still fullscreen (audio keeps playing, the app bar stays hidden).
+            val callback = customViewCallback
             customViewCallback = null
+            callback?.onCustomViewHidden()
 
             updateUI()
         }

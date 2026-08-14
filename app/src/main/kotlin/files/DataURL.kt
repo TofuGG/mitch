@@ -1,8 +1,8 @@
 package garden.appl.mitch.files
 
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.net.URLDecoder
 import java.nio.charset.Charset
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -24,13 +24,38 @@ class DataURL(val url: String) {
 
     @OptIn(ExperimentalEncodingApi::class)
     fun toInputStream(): InputStream {
-        val decoded = URLDecoder.decode(url.substring(startPos), charset)
+        // Data URLs use percent-encoding only; URLDecoder must not be used here because it
+        // also decodes '+' to a space (form-url-encoded semantics), which corrupts any base64
+        // payload containing '+' (a regular base64 character) and any literal '+' in raw data.
+        val charSet = Charset.forName(charset)
+        val bytes = percentDecode(url.substring(startPos), charSet)
         val byteArray = if (base64)
-            Base64.decode(decoded)
-        else {
-            decoded.toByteArray(Charset.forName(charset))
-        }
+            Base64.decode(bytes.toString(charSet))
+        else
+            bytes
         return ByteArrayInputStream(byteArray)
+    }
+
+    private fun percentDecode(s: String, charset: Charset): ByteArray {
+        if (s.indexOf('%') == -1)
+            return s.toByteArray(charset)
+        val out = ByteArrayOutputStream(s.length)
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (c == '%' && i + 2 < s.length) {
+                val hi = Character.digit(s[i + 1], 16)
+                val lo = Character.digit(s[i + 2], 16)
+                if (hi != -1 && lo != -1) {
+                    out.write((hi shl 4) or lo)
+                    i += 3
+                    continue
+                }
+            }
+            out.write(c.toString().toByteArray(charset))
+            i++
+        }
+        return out.toByteArray()
     }
 
     companion object {

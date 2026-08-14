@@ -3,6 +3,7 @@ package garden.appl.mitch.files
 import junit.framework.TestCase
 import org.hamcrest.CoreMatchers.equalTo
 import org.junit.Assume.assumeThat
+import java.util.Arrays
 
 class DataURLTest : TestCase() {
     fun testToInputStream() {
@@ -21,5 +22,13 @@ class DataURLTest : TestCase() {
         val url = """data:text/plain;charset=utf-8,%D0%9F%D1%80%D0%B8%D0%B2%D1%96%D1%82%2C%20%D1%81%D0%B2%D1%96%D1%82%21"""
         val decoded = DataURL(url).toInputStream().readAllBytes().decodeToString()
         assumeThat(decoded, equalTo("Привіт, світ!"))
+    }
+
+    fun testToInputStream_base64_withPlus() {
+        // "++8=" is the base64 of the two bytes 0xFB 0xEF. The '+' characters are a
+        // regular part of the base64 alphabet and must NOT be treated as URL spaces.
+        val url = """data:application/octet-stream;base64,++8="""
+        val decoded = DataURL(url).toInputStream().readAllBytes()
+        assertTrue(Arrays.equals(byteArrayOf(0xFB.toByte(), 0xEF.toByte()), decoded))
     }
 }

@@ -25,5 +25,11 @@ class UtilsTest : TestCase() {
         assertNull(Utils.isVersionNewer("Nonsense version", "1.0"))
         assertNull(Utils.isVersionNewer("1.0", "Nonsense version"))
         assertNull(Utils.isVersionNewer("Nonsense version", "Other nonsense version"))
+
+        // Versions that differ only in trailing zero components are numerically equal
+        // and must not be reported as a newer version (would cause spurious updates).
+        assertFalse(Utils.isVersionNewer("1.0.0", "1.0"))
+        assertFalse(Utils.isVersionNewer("2.3.4.0", "2.3.4"))
+        assertFalse(Utils.isVersionNewer("1.0.0", "1.0.0.0"))
     }
 }

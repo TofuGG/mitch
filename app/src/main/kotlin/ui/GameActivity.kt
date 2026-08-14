@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.util.Base64
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
@@ -511,6 +512,10 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
     }
 
     override fun onBackPressed() {
+        if (chromeClient.isFullscreen()) {
+            chromeClient.onHideCustomView()
+            return
+        }
         if (webView.canGoBack()) {
             webView.goBack()
         } else {
@@ -665,15 +670,37 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
         openMultipleDocumentsLauncher: ActivityResultLauncher<Array<String>>
     ) : MitchWebChromeClient(openDocumentLauncher, openMultipleDocumentsLauncher) {
         private var customView: View? = null
+        private var customViewCallback: CustomViewCallback? = null
+
+        fun isFullscreen(): Boolean = customView != null
 
         override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+            if (view == null) {
+                // WebView can report "fullscreen" without an actual view; tell it the
+                // custom view was already hidden instead of adding a null child (NPE).
+                callback?.onCustomViewHidden()
+                return
+            }
+            customView = view
+            customViewCallback = callback
             webView.visibility = View.GONE
-            binding.root.addView(view)
+            binding.root.addView(
+                view,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            )
         }
 
         override fun onHideCustomView() {
             webView.visibility = View.VISIBLE
             customView?.let { binding.root.removeView(it) }
+            customView = null
+            // Without this the WebView keeps thinking the page is still fullscreen
+            // (audio keeps playing, exit controls stay hidden).
+            customViewCallback?.onCustomViewHidden()
+            customViewCallback = null
         }
 
         override fun setFileChooserCallback(callback: ValueCallback<Array<Uri>>) {
