@@ -39,12 +39,12 @@ import garden.appl.mitch.PREF_WEB_CACHE_ENABLE
 import garden.appl.mitch.PREF_WEB_CACHE_UPDATE
 import garden.appl.mitch.PreferenceWebCacheEnable
 import garden.appl.mitch.PreferenceWebCacheUpdate
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import garden.appl.mitch.Utils
 import garden.appl.mitch.client.ItchWebsiteParser
 import garden.appl.mitch.database.AppDatabase
 import garden.appl.mitch.database.game.Game
-import garden.appl.mitch.databinding.ActivityGameBinding
+import tofu.gg.mitchy.databinding.ActivityGameBinding
 import garden.appl.mitch.files.DownloadFileListener
 import garden.appl.mitch.files.DownloadType
 import garden.appl.mitch.files.Downloader

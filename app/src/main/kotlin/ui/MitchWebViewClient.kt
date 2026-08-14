@@ -11,7 +11,7 @@ import android.widget.Toast
 import androidx.core.net.toUri
 import androidx.preference.PreferenceManager
 import garden.appl.mitch.ItchWebsiteUtils
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import java.io.ByteArrayInputStream
 
 open class MitchWebViewClient : WebViewClient() {

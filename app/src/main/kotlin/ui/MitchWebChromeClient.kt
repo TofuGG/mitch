@@ -12,8 +12,8 @@ import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.appcompat.app.AlertDialog
-import garden.appl.mitch.R
-import garden.appl.mitch.databinding.DialogWebPromptBinding
+import tofu.gg.mitchy.R
+import tofu.gg.mitchy.databinding.DialogWebPromptBinding
 
 abstract class MitchWebChromeClient(
     private val openDocumentLauncher: ActivityResultLauncher<Array<String>>,

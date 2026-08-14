@@ -32,6 +32,8 @@ import org.acra.config.dialog
 import org.acra.config.mailSender
 import org.acra.data.StringFormat
 import org.acra.ktx.initAcra
+import tofu.gg.mitchy.BuildConfig
+import tofu.gg.mitchy.R
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -61,9 +63,9 @@ const val HEADER_UA = "User-Agent"
 
 
 // Remember to exclude sensitive info from ACRA reports
-const val PREF_DB_RAN_CLEANUP_ONCE = "ua.gardenapple.itchupdater.db_cleanup_once"
-const val PREF_INSTALLER = "ua.gardenapple.itchupdater.installer"
-const val PREF_WEB_ANDROID_FILTER = "ua.gardenapple.itchupdater.web_android_filter"
+const val PREF_DB_RAN_CLEANUP_ONCE = "tofu.gg.mitchy.db_cleanup_once"
+const val PREF_INSTALLER = "tofu.gg.mitchy.installer"
+const val PREF_WEB_ANDROID_FILTER = "tofu.gg.mitchy.web_android_filter"
 // Bundles: mitch.{racial, palestine, ukraine, trans_texas}
 const val PREF_LANG = "mitch.lang"
 /**

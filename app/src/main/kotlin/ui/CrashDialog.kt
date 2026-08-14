@@ -3,7 +3,7 @@ package garden.appl.mitch.ui
 import android.app.Activity
 import android.os.Bundle
 import androidx.appcompat.app.AlertDialog
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import org.acra.dialog.CrashReportDialogHelper
 
 class CrashDialog : Activity() {

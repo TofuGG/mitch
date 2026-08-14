@@ -7,7 +7,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
-import garden.appl.mitch.BuildConfig
+import tofu.gg.mitchy.BuildConfig
 import garden.appl.mitch.PREF_DB_RAN_CLEANUP_ONCE
 import garden.appl.mitch.database.game.Game
 import garden.appl.mitch.database.game.GameDao

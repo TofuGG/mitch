@@ -48,17 +48,30 @@ android {
         }
     }
 
-    namespace = "garden.appl.mitch"
+    namespace = "tofu.gg.mitchy"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "ua.gardenapple.itchupdater"
+        applicationId = "tofu.gg.mitchy"
         minSdk = 21
         targetSdk = 34
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        versionCode = 20303
-        versionName = (project.findProperty("versionName") as? String) ?: "2.3.3"
+        // The version name comes from -PversionName (set by the release workflow from the
+        // commit message, e.g. "release 2.3.4"), or falls back to the default below.
+        val releaseVersionName = (project.findProperty("versionName") as? String) ?: "2.3.3"
+        versionName = releaseVersionName
+        // Derive a monotonic version code from the version name, e.g. "2.3.4" -> 20304, so
+        // version bumps stay installable as upgrades. Falls back to the default code when the
+        // name isn't a <major>.<minor>.<patch> number.
+        versionCode = run {
+            val parts = releaseVersionName.trimStart('v').split('.').take(3)
+            val numbers = parts.map { it.toIntOrNull() }
+            if (numbers.size == 3 && numbers.all { it != null })
+                numbers[0]!! * 10000 + numbers[1]!! * 100 + numbers[2]!!
+            else
+                20303
+        }
     }
     buildTypes {
         named("release").configure {

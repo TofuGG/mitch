@@ -15,7 +15,7 @@ import garden.appl.mitch.NOTIFICATION_CHANNEL_ID_INSTALLING
 import garden.appl.mitch.NOTIFICATION_CHANNEL_ID_INSTALL_NEEDED
 import garden.appl.mitch.NOTIFICATION_TAG_DOWNLOAD
 import garden.appl.mitch.NOTIFICATION_TAG_DOWNLOAD_LONG
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import garden.appl.mitch.Utils
 import garden.appl.mitch.ui.MitchActivity
 import java.io.File

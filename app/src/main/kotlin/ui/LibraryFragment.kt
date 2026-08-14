@@ -18,7 +18,7 @@ import com.bumptech.glide.util.FixedPreloadSizeProvider
 import garden.appl.mitch.database.game.GameRepository
 import garden.appl.mitch.database.game.GameViewModel
 import garden.appl.mitch.database.installation.GameInstallation
-import garden.appl.mitch.databinding.LibraryFragmentBinding
+import tofu.gg.mitchy.databinding.LibraryFragmentBinding
 import java.util.Collections
 
 class LibraryFragment : Fragment() {

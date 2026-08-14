@@ -22,7 +22,7 @@ import garden.appl.mitch.NOTIFICATION_TAG_DOWNLOAD_LONG
 import garden.appl.mitch.NOTIFICATION_TAG_INSTALL_RESULT
 import garden.appl.mitch.NOTIFICATION_TAG_INSTALL_RESULT_LONG
 import garden.appl.mitch.PREF_INSTALLER
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import garden.appl.mitch.Utils
 import garden.appl.mitch.database.AppDatabase
 import garden.appl.mitch.database.installation.Installation

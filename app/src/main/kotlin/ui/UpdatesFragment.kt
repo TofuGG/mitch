@@ -16,7 +16,7 @@ import com.bumptech.glide.util.FixedPreloadSizeProvider
 import garden.appl.mitch.client.UpdateChecker
 import garden.appl.mitch.database.updatecheck.InstallUpdateCheckResult
 import garden.appl.mitch.database.updatecheck.UpdateCheckResultViewModel
-import garden.appl.mitch.databinding.UpdatesFragmentBinding
+import tofu.gg.mitchy.databinding.UpdatesFragmentBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel

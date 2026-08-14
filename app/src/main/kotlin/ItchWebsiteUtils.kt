@@ -10,6 +10,7 @@ import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.io.IOException
+import tofu.gg.mitchy.R
 import java.net.URLEncoder
 
 object ItchWebsiteUtils {

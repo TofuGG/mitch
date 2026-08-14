@@ -28,7 +28,7 @@ class NativeInstallerActivity : FragmentActivity() {
     companion object {
         private const val LOGGING_TAG = "NativeInstallerActivity"
         const val ACTION_INSTALL_PACKAGE =
-            "ua.gardenapple.itchupdater.install.NativeInstaller.INSTALL_PACKAGE"
+            "tofu.gg.mitchy.install.NativeInstaller.INSTALL_PACKAGE"
         private const val REQUEST_CODE_INSTALL = 0
 
         const val EXTRA_INSTALL_ID = "install_id"

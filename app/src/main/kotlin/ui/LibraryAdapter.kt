@@ -37,7 +37,7 @@ import garden.appl.mitch.FILE_PROVIDER
 import garden.appl.mitch.Mitch
 import garden.appl.mitch.NOTIFICATION_TAG_DOWNLOAD
 import garden.appl.mitch.NOTIFICATION_TAG_DOWNLOAD_LONG
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import garden.appl.mitch.Utils
 import garden.appl.mitch.database.AppDatabase
 import garden.appl.mitch.database.game.Game

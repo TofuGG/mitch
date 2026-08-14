@@ -16,10 +16,10 @@ import androidx.paging.LoadState
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import garden.appl.mitch.ItchWebsiteUtils
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import garden.appl.mitch.data.ItchLibraryRepository
 import garden.appl.mitch.data.ItchLibraryViewModel
-import garden.appl.mitch.databinding.OwnedActivityBinding
+import tofu.gg.mitchy.databinding.OwnedActivityBinding
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChangedBy
@@ -32,7 +32,7 @@ class OwnedGamesActivity : MitchActivity() {
         const val THUMBNAIL_HEIGHT = 250
 
         private const val LAST_SEARCH_QUERY = "last_search"
-        private const val LAST_ANDROID_ONLY_FILTER = "ua.gardenapple.itchupdater.lastupdatecheck.last_android_only"
+        private const val LAST_ANDROID_ONLY_FILTER = "tofu.gg.mitchy.lastupdatecheck.last_android_only"
         private const val DEFAULT_ANDROID_ONLY_FILTER = false
     }
 

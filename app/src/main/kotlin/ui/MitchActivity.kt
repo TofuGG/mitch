@@ -28,7 +28,7 @@ import garden.appl.mitch.PERMISSION_REQUEST_START_DOWNLOAD
 import garden.appl.mitch.PREF_LANG_LOCALE
 import garden.appl.mitch.PREF_LANG_LOCALE_NEXT
 import garden.appl.mitch.PREF_NO_NOTIFICATIONS
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

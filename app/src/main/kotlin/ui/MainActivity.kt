@@ -14,10 +14,10 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentTransaction
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import garden.appl.mitch.ItchWebsiteUtils
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import garden.appl.mitch.Utils
 import garden.appl.mitch.database.AppDatabase
-import garden.appl.mitch.databinding.ActivityMainBinding
+import tofu.gg.mitchy.databinding.ActivityMainBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel

@@ -47,7 +47,7 @@ import com.google.android.material.textfield.TextInputEditText
 import com.leinardi.android.speeddial.SpeedDialActionItem
 import com.leinardi.android.speeddial.SpeedDialView
 import com.leinardi.android.speeddial.SpeedDialView.OnChangeListener
-import garden.appl.mitch.BuildConfig
+import tofu.gg.mitchy.BuildConfig
 import garden.appl.mitch.ItchWebsiteUtils
 import garden.appl.mitch.PREF_BROWSE_GENRES_FILTER
 import garden.appl.mitch.PREF_BROWSE_LAST_URL
@@ -58,7 +58,7 @@ import garden.appl.mitch.PREF_TAG_EXCLUSION_ENABLED
 import garden.appl.mitch.PREF_UPDATE_TRACKING_ENABLED
 import garden.appl.mitch.PREF_WARN_WRONG_OS
 import garden.appl.mitch.PREF_WEB_ANDROID_FILTER
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import garden.appl.mitch.SessionCookieStore
 import garden.appl.mitch.Utils
 import garden.appl.mitch.client.ItchBrowseHandler
@@ -69,7 +69,7 @@ import garden.appl.mitch.client.SpecialBundleHandler
 import garden.appl.mitch.data.ItchGenre
 import garden.appl.mitch.database.AppDatabase
 import garden.appl.mitch.database.installation.Installation
-import garden.appl.mitch.databinding.BrowseFragmentBinding
+import tofu.gg.mitchy.databinding.BrowseFragmentBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope

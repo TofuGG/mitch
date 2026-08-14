@@ -15,7 +15,7 @@
                 android:title="@string/settings_exclude_tags" />
         <SwitchPreference
                 android:defaultValue="true"
-                android:key="ua.gardenapple.itchupdater.web_android_filter"
+                android:key="tofu.gg.mitchy.web_android_filter"
                 android:summary="@string/settings_android_only_filter_desc"
                 android:title="@string/settings_android_only_filter" />
         <SwitchPreference
@@ -90,7 +90,7 @@
                 android:defaultValue="session"
                 android:entries="@array/pref_installer_entries"
                 android:entryValues="@array/pref_installer_values"
-                android:key="ua.gardenapple.itchupdater.installer"
+                android:key="tofu.gg.mitchy.installer"
                 android:summary="@string/settings_installer_desc"
                 android:title="@string/settings_installer" />
         <Preference

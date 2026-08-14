@@ -11,7 +11,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.tooling.preview.Preview
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 
 //@Composable
 //fun MitchTheme(

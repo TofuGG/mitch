@@ -15,11 +15,11 @@ import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import garden.appl.mitch.client.ItchLibraryItem
 import garden.appl.mitch.client.ItchWebsiteParser
 import garden.appl.mitch.data.ItchLibraryUiModel
-import garden.appl.mitch.databinding.OwnedItemSeparatorBinding
+import tofu.gg.mitchy.databinding.OwnedItemSeparatorBinding
 
 class OwnedGamesAdapter(
     private val context: Context

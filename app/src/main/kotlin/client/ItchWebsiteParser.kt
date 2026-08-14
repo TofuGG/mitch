@@ -8,7 +8,7 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.net.toUri
 import garden.appl.mitch.ItchWebsiteUtils
 import garden.appl.mitch.Mitch
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import garden.appl.mitch.Utils
 import garden.appl.mitch.client.ItchWebsiteParser.getPurchasedInfo
 import garden.appl.mitch.database.game.Game

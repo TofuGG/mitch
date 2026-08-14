@@ -32,8 +32,10 @@ jobs:
       - name: Determine release version
         id: version
         run: |
+          # "release 2.3.4" and "release v2.3.4" both resolve to app version 2.3.4
+          # (passed to Gradle as -PversionName below).
           version="$(printf '%s' "$COMMIT_MSG" | sed -n 's/^[Rr]elease[[:space:]]*//p' | head -n1)"
-          version="$(printf '%s' "$version" | tr ' ' '-')"
+          version="$(printf '%s' "$version" | tr ' ' '-' | sed 's/^v//')"
           if [ -z "$version" ]; then
             version="${GITHUB_SHA:0:7}"
           fi

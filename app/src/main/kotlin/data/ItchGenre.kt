@@ -1,7 +1,7 @@
 package garden.appl.mitch.data
 
 import androidx.annotation.StringRes
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 
 enum class ItchGenre(@StringRes val nameResource: Int) {
     ACTION(R.string.genre_action),

@@ -8,7 +8,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.PendingIntentCompat
 import garden.appl.mitch.NOTIFICATION_CHANNEL_ID_WEB_RUNNING
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 
 
 /**

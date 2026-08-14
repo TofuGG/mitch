@@ -11,7 +11,7 @@ import garden.appl.mitch.ItchWebsiteUtils
 import garden.appl.mitch.Mitch
 import garden.appl.mitch.PREF_LANG_SITE_LOCALE
 import garden.appl.mitch.PREF_WARN_WRONG_OS
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import garden.appl.mitch.data.SpecialBundle
 import garden.appl.mitch.data.containsGame
 import garden.appl.mitch.database.AppDatabase

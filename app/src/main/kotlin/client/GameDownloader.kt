@@ -12,7 +12,7 @@ import garden.appl.mitch.ItchWebsiteUtils
 import garden.appl.mitch.Mitch
 import garden.appl.mitch.NOTIFICATION_CHANNEL_ID_INSTALLING
 import garden.appl.mitch.NOTIFICATION_TAG_UPDATE_CHECK
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import garden.appl.mitch.Utils
 import garden.appl.mitch.database.AppDatabase
 import garden.appl.mitch.database.game.Game

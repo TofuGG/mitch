@@ -1,7 +1,7 @@
 package garden.appl.mitch.client
 
 import android.util.Log
-import garden.appl.mitch.BuildConfig
+import tofu.gg.mitchy.BuildConfig
 import garden.appl.mitch.HEADER_UA
 import garden.appl.mitch.ItchWebsiteUtils
 import garden.appl.mitch.Mitch

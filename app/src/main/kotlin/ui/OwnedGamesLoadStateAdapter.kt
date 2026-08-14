@@ -10,9 +10,9 @@ import androidx.paging.LoadState
 import androidx.paging.LoadStateAdapter
 import androidx.recyclerview.widget.RecyclerView
 import garden.appl.mitch.ItchWebsiteUtils
-import garden.appl.mitch.R
+import tofu.gg.mitchy.R
 import garden.appl.mitch.client.ItchAccessDeniedException
-import garden.appl.mitch.databinding.OwnedItemLoadStateFooterBinding
+import tofu.gg.mitchy.databinding.OwnedItemLoadStateFooterBinding
 
 class OwnedGamesLoadStateAdapter(private val retry: () -> Unit) :
     LoadStateAdapter<OwnedGamesLoadStateAdapter.OwnedGamesLoadStateViewHolder>() {
