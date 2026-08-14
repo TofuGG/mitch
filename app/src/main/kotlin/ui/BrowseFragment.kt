@@ -53,6 +53,7 @@ import garden.appl.mitch.PREF_DEBUG_WEB_GAMES_IN_BROWSE_TAB
 import garden.appl.mitch.PREF_WARN_WRONG_OS
 import garden.appl.mitch.PREF_WEB_ANDROID_FILTER
 import garden.appl.mitch.R
+import garden.appl.mitch.SessionCookieStore
 import garden.appl.mitch.Utils
 import garden.appl.mitch.client.ItchBrowseHandler
 import garden.appl.mitch.client.ItchWebsiteParser
@@ -386,6 +387,7 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         webView.onPause()
 //        webView.pauseTimers()
         CookieManager.getInstance().flush()
+        SessionCookieStore.capture(requireContext())
     }
 
     override fun onResume() {

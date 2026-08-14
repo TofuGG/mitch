@@ -107,6 +107,8 @@ class LibraryAdapter internal constructor(
                     context.resources.getString(R.string.library_item_downloading)
                 Installation.STATUS_INSTALLING ->
                     context.resources.getString(R.string.library_item_installing)
+                Installation.STATUS_FAILURE ->
+                    context.resources.getString(R.string.library_item_install_failed)
                 else -> ""
             }
         }
@@ -135,6 +137,29 @@ class LibraryAdapter internal constructor(
     private fun onCardClick(view: View) {
         val position = list.getChildLayoutPosition(view)
         val gameInstall = gameInstalls[position]
+
+        if (gameInstall.status == Installation.STATUS_FAILURE) {
+            val dialog = AlertDialog.Builder(context).apply {
+                setTitle(R.string.dialog_install_failed_title)
+                setMessage(context.getString(
+                    R.string.dialog_install_failed_message, gameInstall.uploadName))
+                setPositiveButton(R.string.game_go_to_store) { _, _ ->
+                    if (activity is MainActivity) {
+                        activity.browseUrl(gameInstall.game.storeUrl)
+                    } else {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(gameInstall.game.storeUrl),
+                            context, MainActivity::class.java)
+                        context.startActivity(intent)
+                    }
+                }
+                setNegativeButton(R.string.dialog_no) { _, _ -> /* NO-OP */ }
+                setCancelable(true)
+
+                create()
+            }
+            dialog.show()
+            return
+        }
 
         if (gameInstall.status == Installation.STATUS_READY_TO_INSTALL) {
             val notificationService = context.getSystemService(Activity.NOTIFICATION_SERVICE)
@@ -262,7 +287,8 @@ class LibraryAdapter internal constructor(
                 removeItem(R.id.delete)
             if (!(type == GameRepository.Type.Downloads && gameInstall.externalFileUri != null))
                 removeItem(R.id.remove)
-            if (type != GameRepository.Type.Pending)
+            if (type != GameRepository.Type.Pending
+                || gameInstall.status == Installation.STATUS_FAILURE)
                 removeItem(R.id.cancel)
 
             setCallback(object : MenuBuilder.Callback {

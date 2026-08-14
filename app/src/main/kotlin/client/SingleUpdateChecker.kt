@@ -58,7 +58,9 @@ class SingleUpdateChecker(val db: AppDatabase) {
                     errorReport = "No APK asset in the latest GitHub release"
                 )
 
-            if (Utils.isVersionNewer(tagName, install.version ?: "0") != true) {
+            // Compare against the real running version, not the DB record, which can be
+            // stale or missing and would otherwise cause spurious update notifications.
+            if (Utils.isVersionNewer(tagName, BuildConfig.VERSION_NAME) != true) {
                 return UpdateCheckResult(install.internalId, UpdateCheckResult.UP_TO_DATE)
             }
 

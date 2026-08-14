@@ -196,10 +196,14 @@ object Utils {
     }
 
     fun isPackageInstalled(packageName: String, packageManager: PackageManager): Boolean {
-        try {
-            return packageManager.getApplicationInfo(packageName, 0).enabled
+        return try {
+            // An app that exists but is disabled is still installed; only a
+            // missing package should count as "not installed". Otherwise the
+            // 24h cleanup would silently drop games from the library.
+            packageManager.getApplicationInfo(packageName, 0)
+            true
         } catch (e: PackageManager.NameNotFoundException) {
-            return false
+            false
         }
     }
 

@@ -179,6 +179,15 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
 //        webView.settings.setAppCachePath(File(filesDir, "html5-app-cache").path)
         webView.settings.databaseEnabled = true
 
+        // Let HTML5 games use the page's viewport meta tag and fill the whole
+        // screen instead of being cut off at the top-left corner.
+        // https://todo.sr.ht/~gardenapple/mitch/84
+        webView.settings.useWideViewPort = true
+        webView.settings.loadWithOverviewMode = true
+        webView.settings.setSupportZoom(true)
+        webView.settings.builtInZoomControls = true
+        webView.settings.displayZoomControls = false
+
         webView.settings.mediaPlaybackRequiresUserGesture = false
         webView.webViewClient = GameWebViewClient()
         webView.webChromeClient = chromeClient

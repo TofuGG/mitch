@@ -204,6 +204,7 @@ data class Installation(
         const val STATUS_READY_TO_INSTALL = 3
         const val STATUS_WEB_CACHED = 4
         const val STATUS_SUBSCRIPTION = 5
+        const val STATUS_FAILURE = 6
 
         const val PLATFORM_NONE = 0
         const val PLATFORM_WINDOWS = 1

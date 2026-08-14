@@ -34,6 +34,9 @@ class InstallationDownloadManager(context: Context) {
                                 fileName: String, contentLength: Long?, install: Installation) {
         val db = AppDatabase.getDatabase(context)
 
+        // A previous attempt may have failed; clear its marker so the retry starts clean.
+        db.installDao.deleteFailedInstallation(install.uploadId)
+
         //cancel download for current pending installation
         db.installDao.getPendingInstallation(install.uploadId)?.let { currentPendingInstall ->
             Log.d(LOGGING_TAG, "Already existing install for ${install.uploadId}")

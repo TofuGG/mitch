@@ -86,6 +86,9 @@
     <string name="library_item_downloading">Downloading…</string>
     <string name="library_item_installing">Installing…</string>
     <string name="library_item_ready_to_install">Press to install</string>
+    <string name="library_item_install_failed">Installation failed</string>
+    <string name="dialog_install_failed_title">Installation failed</string>
+    <string name="dialog_install_failed_message">%1$s could not be installed. Try downloading it again from the store page.</string>
     <string name="game_cancel_download_or_install">Cancel</string>
     <string name="popup_download_or_install_cancelled">Cancelled</string>
     <string name="notification_game_running">itch.io web game is running</string>

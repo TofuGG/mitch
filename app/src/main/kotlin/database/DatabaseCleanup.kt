@@ -10,7 +10,6 @@ import androidx.work.ListenableWorker.Result
 import androidx.work.WorkerParameters
 import garden.appl.mitch.Mitch
 import garden.appl.mitch.PREF_DB_RAN_CLEANUP_ONCE
-import garden.appl.mitch.Utils
 import garden.appl.mitch.database.game.Game
 import garden.appl.mitch.database.installation.Installation
 import garden.appl.mitch.install.Installations
@@ -32,10 +31,10 @@ class DatabaseCleanup(private val context: Context) {
         for (install in installs) {
             Log.d(LOGGING_TAG, "Install: $install")
             when (install.status) {
-                Installation.STATUS_INSTALLED -> install.packageName?.let { packageName ->
-                    if (!Utils.isPackageInstalled(packageName, context.packageManager))
-                        installsToDelete.add(install)
-                }
+                // Installed games are never removed automatically. Checking for the package here
+                // is unreliable (disabled apps, multi-user devices, stale package names) and has
+                // caused games to silently vanish from the library. Users can remove them manually.
+                Installation.STATUS_INSTALLED -> {}
                 Installation.STATUS_INSTALLING -> {
                     val installId = install.downloadOrInstallId
                     if (installId == null) {

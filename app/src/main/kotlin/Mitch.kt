@@ -246,6 +246,9 @@ class Mitch : Application() {
             ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<DatabaseCleanup.Worker>(1, TimeUnit.DAYS).build()
         )
+
+        // Restore session cookies (itch.io/GitHub login) that don't survive a reboot
+        SessionCookieStore.restore(this)
     }
 
     private fun registerUpdateCheckTask(

@@ -12,6 +12,7 @@ import garden.appl.mitch.database.installation.Installation.Companion.GAME_ID
 import garden.appl.mitch.database.installation.Installation.Companion.INTERNAL_ID
 import garden.appl.mitch.database.installation.Installation.Companion.PACKAGE_NAME
 import garden.appl.mitch.database.installation.Installation.Companion.STATUS
+import garden.appl.mitch.database.installation.Installation.Companion.STATUS_FAILURE
 import garden.appl.mitch.database.installation.Installation.Companion.STATUS_INSTALLED
 import garden.appl.mitch.database.installation.Installation.Companion.STATUS_INSTALLING
 import garden.appl.mitch.database.installation.Installation.Companion.STATUS_SUBSCRIPTION
@@ -46,6 +47,9 @@ abstract class InstallationDao {
 
     @Query("DELETE FROM $TABLE_NAME WHERE $UPLOAD_ID = :uploadId AND $STATUS = $STATUS_INSTALLED")
     abstract suspend fun deleteFinishedInstallation(uploadId: Int)
+
+    @Query("DELETE FROM $TABLE_NAME WHERE $UPLOAD_ID = :uploadId AND $STATUS = $STATUS_FAILURE")
+    abstract suspend fun deleteFailedInstallation(uploadId: Int)
 
     @Query("SELECT * FROM $TABLE_NAME WHERE $PACKAGE_NAME = :packageName AND $STATUS = $STATUS_INSTALLED")
     abstract suspend fun getInstallationByPackageName(packageName: String): Installation?

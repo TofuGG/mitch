@@ -77,6 +77,14 @@ object Installations {
         if (status == Installation.STATUS_INSTALLED || status == Installation.STATUS_WEB_CACHED)
             throw IllegalArgumentException("Tried to cancel installed Installation")
 
+        val db = AppDatabase.getDatabase(context)
+
+        // A failed install/download has no active session anymore, just remove the marker.
+        if (status == Installation.STATUS_FAILURE) {
+            db.installDao.delete(installId)
+            return
+        }
+
         if (status != Installation.STATUS_INSTALLING) {
             val notificationService =
                 context.getSystemService(Activity.NOTIFICATION_SERVICE) as NotificationManager
@@ -86,7 +94,6 @@ object Installations {
                 notificationService.cancel(NOTIFICATION_TAG_DOWNLOAD_LONG, downloadOrInstallId.toInt())
         }
 
-        val db = AppDatabase.getDatabase(context)
         db.updateCheckDao.getUpdateCheckResultForUpload(uploadId)?.let {
             it.isInstalling = false
             db.updateCheckDao.insert(it)
