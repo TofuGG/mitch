@@ -569,7 +569,11 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         val navBar = mainActivity.binding.bottomNavigationView
         val bottomGameBar = mainActivity.binding.bottomGameBar
         val speedDial = mainActivity.binding.speedDial
-        val supportAppBar = mainActivity.supportActionBar!!
+        val supportAppBar = mainActivity.supportActionBar
+            ?: run {
+                Log.e(LOGGING_TAG, "supportActionBar not ready yet, skipping page UI update")
+                return
+            }
         val appBar = mainActivity.binding.toolbar
         val gameButton = mainActivity.binding.gameButton
         val gameButtonInfo = mainActivity.binding.gameButtonInfo
@@ -1276,17 +1280,28 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 
     @Keep // prevent this class from being removed by compiler optimizations
     private class MitchJavaScriptInterface(val fragment: BrowseFragment) {
-        private fun verifyNonce(nonce: String) {
-            if (nonce != fragment.webViewJSNonce.toString()) {
-                fragment.launch(Dispatchers.Main) {
-                    throw SecurityException("Wrong nonce in JavaScript interface call. Expected ${fragment.webViewJSNonce}, got $nonce")
-                }
-            }
+        /**
+         * Drops JavaScript interface calls that carry a stale nonce instead of crashing.
+         *
+         * A nonce mismatch used to throw a SecurityException on the main thread, which killed
+         * the whole app. That is reachable in practice: after a WebView session restore (process
+         * death / tab restore), the page's injected JS still carries the nonce it was loaded
+         * with, while this fragment may hold a fresh one — so a legitimate callback from the
+         * restored page (e.g. a download button click or a page-ready signal) crashed the app.
+         * Stale calls are simply ignored; the security intent (not processing spoofed calls)
+         * is unchanged.
+         */
+        private fun verifyNonce(nonce: String): Boolean {
+            if (nonce == fragment.webViewJSNonce.toString())
+                return true
+            Log.w(LOGGING_TAG, "Ignoring JavaScript interface call with stale nonce " +
+                "$nonce (expected ${fragment.webViewJSNonce})")
+            return false
         }
 
         @JavascriptInterface
         fun onDownloadLinkClick(uploadId: String, nonce: String) {
-            verifyNonce(nonce)
+            if (!verifyNonce(nonce)) return
             fragment.launch {
                 fragment.browseHandler?.setClickedUploadId(uploadId.toInt())
             }
@@ -1294,7 +1309,7 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 
         @JavascriptInterface
         fun onHtmlLoaded(html: String, url: String, userAgent: String, nonce: String) {
-            verifyNonce(nonce)
+            if (!verifyNonce(nonce)) return
             Log.d(LOGGING_TAG, "loaded UA: $userAgent")
             if (fragment.activity !is MainActivity)
                 return
