@@ -477,6 +477,10 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
                     iframe {
                         display: block; 
                         width: 100%; 
+                        /* itch.io's embed iframe carries an inline pixel height, so text
+                           games (Twine & friends) would otherwise render as a tiny strip
+                           instead of filling the player. Override it. */
+                        height: 100% !important;
                         border: none; 
                         overflow-y: auto; 
                         overflow-x: hidden;
