@@ -5,4 +5,6 @@
     <item name="browser_share" type="id"/>
     <item name="browser_open_in_browser" type="id"/>
     <item name="browser_filter_exclude_genres" type="id"/>
+    <item name="browser_filter_exclude_tags" type="id"/>
+    <item name="browser_scroll_to_top" type="id"/>
 </resources>

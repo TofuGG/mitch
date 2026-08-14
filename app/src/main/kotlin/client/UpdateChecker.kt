@@ -11,12 +11,14 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.PendingIntentCompat
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import androidx.preference.PreferenceManager
 import androidx.work.CoroutineWorker
 import androidx.work.ListenableWorker.Result
 import androidx.work.WorkerParameters
 import garden.appl.mitch.ErrorReportBroadcastReceiver
 import garden.appl.mitch.NOTIFICATION_CHANNEL_ID_UPDATES
 import garden.appl.mitch.NOTIFICATION_TAG_UPDATE_CHECK
+import garden.appl.mitch.PREF_UPDATE_TRACKING_ENABLED
 import garden.appl.mitch.R
 import garden.appl.mitch.Utils
 import garden.appl.mitch.database.AppDatabase
@@ -49,7 +51,10 @@ class UpdateChecker(private val context: Context) {
 
         val db = AppDatabase.getDatabase(context)
         val updateChecker = SingleUpdateChecker(db)
+        val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+        val includeSubscriptions = prefs.getBoolean(PREF_UPDATE_TRACKING_ENABLED, true)
         val installations = db.installDao.getFinishedInstallationsAndSubscriptionsSync()
+            .filter { includeSubscriptions || it.status == Installation.STATUS_INSTALLED }
         for (install in installations)
             Log.d(LOGGING_TAG, "Will check for $install")
 

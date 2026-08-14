@@ -256,7 +256,11 @@ object GameDownloader {
             val storePageUrl =
                 ItchWebsiteParser.getStoreUrlFromDownloadPage(downloadPageUrl.toUri())
             val doc = ItchWebsiteUtils.fetchAndParse(storePageUrl)
-            game = ItchWebsiteParser.getGameInfoForStorePage(doc, storePageUrl)!!
+            game = ItchWebsiteParser.getGameInfoForStorePage(doc, storePageUrl)
+            if (game == null) {
+                Log.e(LOGGING_TAG, "Could not parse game info from $storePageUrl")
+                throw IllegalStateException("Could not parse game page $storePageUrl")
+            }
             Log.d(LOGGING_TAG, "Game is missing! Adding game $game")
             db.gameDao.upsert(game)
         }

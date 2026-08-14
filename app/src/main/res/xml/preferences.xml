@@ -18,8 +18,28 @@
                 android:key="ua.gardenapple.itchupdater.web_android_filter"
                 android:summary="@string/settings_android_only_filter_desc"
                 android:title="@string/settings_android_only_filter" />
+        <SwitchPreference
+                android:defaultValue="true"
+                android:key="mitch.tag_exclusion_enabled"
+                android:summary="@string/settings_tag_exclusion_enabled_desc"
+                android:title="@string/settings_tag_exclusion_enabled" />
+        <SwitchPreference
+                android:defaultValue="true"
+                android:key="mitch.scroll_to_top_enabled"
+                android:summary="@string/settings_scroll_to_top_enabled_desc"
+                android:title="@string/settings_scroll_to_top_enabled" />
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/settings_category_updater">
+        <SwitchPreference
+                android:defaultValue="true"
+                android:key="mitch.update_check_enabled"
+                android:summary="@string/settings_update_check_enabled_desc"
+                android:title="@string/settings_update_check_enabled" />
+        <SwitchPreference
+                android:defaultValue="true"
+                android:key="mitch.per_game_update_tracking"
+                android:summary="@string/settings_per_game_update_tracking_desc"
+                android:title="@string/settings_per_game_update_tracking" />
         <SwitchPreference
                 android:defaultValue="true"
                 android:key="mitch.warn_wrong_os"

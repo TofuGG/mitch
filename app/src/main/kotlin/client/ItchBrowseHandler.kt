@@ -2,6 +2,7 @@ package garden.appl.mitch.client
 
 import android.util.Log
 import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.edit
 import androidx.core.net.toUri
@@ -163,44 +164,83 @@ class ItchBrowseHandler(private val context: MitchActivity, private val scope: C
     private suspend fun tryStartDownload() {
         Log.d(LOGGING_TAG, "Upload ID: $clickedUploadId")
 
-        val downloadPageDoc = lastDownloadDoc ?: return
-        val downloadPageUrl = lastDownloadPageUrl ?: return
-        val uploadId = clickedUploadId ?: return
-        val downloadUrl = currentDownloadUrl ?: return
-        val userAgent = currentUserAgent ?: return
-        val contentDisposition = currentDownloadContentDisposition ?: return
-        val mimeType = currentDownloadMimeType ?: return
-        val contentLength = currentDownloadContentLength ?: return
+        val downloadPageDoc = lastDownloadDoc
+        val downloadPageUrl = lastDownloadPageUrl
+        val downloadUrl = currentDownloadUrl
+        val uploadId = clickedUploadId
+            ?: downloadUrl?.let { getUploadIdFromDownloadUrl(it) }
+        val userAgent = currentUserAgent
+        val contentDisposition = currentDownloadContentDisposition
+        val mimeType = currentDownloadMimeType
+        val contentLength = currentDownloadContentLength
 
-        val install = ItchWebsiteParser.getPendingInstallation(downloadPageDoc, uploadId)
-        val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+        if (downloadPageDoc == null || downloadPageUrl == null || uploadId == null ||
+            downloadUrl == null || userAgent == null || contentLength == null ||
+            contentDisposition == null || mimeType == null) {
+            // Some data is still missing (e.g. the download page document hasn't been parsed yet,
+            // or the download button click was not intercepted). The other callbacks
+            // (onDownloadLinkClick / onDownloadStarted / onPageVisited) will call this function
+            // again once the data arrives, so we just wait instead of failing silently.
+            Log.w(LOGGING_TAG, "Incomplete download data, waiting for it to arrive")
+            return
+        }
 
-        if (prefs.getBoolean(PREF_WARN_WRONG_OS, true) && install.platforms != 0
-            && install.platforms and Installation.PLATFORM_ANDROID == 0) {
+        try {
+            val install = ItchWebsiteParser.getPendingInstallation(downloadPageDoc, uploadId)
+            val prefs = PreferenceManager.getDefaultSharedPreferences(context)
 
-            scope.launch(Dispatchers.Main) {
-                val dialog = AlertDialog.Builder(context).run {
-                    setTitle(android.R.string.dialog_alert_title)
-                    setIconAttribute(android.R.attr.alertDialogIcon)
-                    setMessage(context.getString(R.string.dialog_download_wrong_os,
-                        install.uploadName))
-                    setPositiveButton(R.string.dialog_yes) { _, _ ->
-                        scope.launch {
-                            doDownload(install, downloadPageUrl, downloadUrl,
-                                userAgent, contentDisposition, mimeType, contentLength)
+            if (prefs.getBoolean(PREF_WARN_WRONG_OS, true) && install.platforms != 0
+                && install.platforms and Installation.PLATFORM_ANDROID == 0) {
+
+                scope.launch(Dispatchers.Main) {
+                    val dialog = AlertDialog.Builder(context).run {
+                        setTitle(android.R.string.dialog_alert_title)
+                        setIconAttribute(android.R.attr.alertDialogIcon)
+                        setMessage(context.getString(R.string.dialog_download_wrong_os,
+                            install.uploadName))
+                        setPositiveButton(R.string.dialog_yes) { _, _ ->
+                            scope.launch {
+                                doDownload(install, downloadPageUrl, downloadUrl,
+                                    userAgent, contentDisposition, mimeType, contentLength)
+                            }
                         }
-                    }
-                    setNegativeButton(R.string.dialog_no) { _, _ ->
-                        //no-op
-                    }
+                        setNegativeButton(R.string.dialog_no) { _, _ ->
+                            //no-op
+                        }
 
-                    create()
+                        create()
+                    }
+                    dialog.show()
                 }
-                dialog.show()
+            } else {
+                doDownload(install, downloadPageUrl, downloadUrl,
+                    userAgent, contentDisposition, mimeType, contentLength)
             }
-        } else {
-            doDownload(install, downloadPageUrl, downloadUrl,
-                userAgent, contentDisposition, mimeType, contentLength)
+        } catch (e: ItchWebsiteParser.UploadNotFoundException) {
+            Log.e(LOGGING_TAG, "Upload $uploadId not found on download page", e)
+            showDownloadError(R.string.popup_download_upload_not_found)
+        } catch (e: Exception) {
+            Log.e(LOGGING_TAG, "Could not start download", e)
+            showDownloadError(R.string.popup_download_error)
+        }
+    }
+
+    /**
+     * itch.io download URLs point at the file page, e.g.
+     * "https://creator.itch.io/game/file/1234567". This lets us recover the upload id even if
+     * the JavaScript click handler didn't manage to report it (e.g. due to a race condition).
+     */
+    private fun getUploadIdFromDownloadUrl(downloadUrl: String): Int? {
+        val segments = downloadUrl.toUri().pathSegments ?: return null
+        val fileIndex = segments.indexOf("file")
+        if (fileIndex == -1 || fileIndex + 1 >= segments.size)
+            return null
+        return segments[fileIndex + 1].toIntOrNull()
+    }
+
+    private fun showDownloadError(@StringRes messageRes: Int) {
+        scope.launch(Dispatchers.Main) {
+            Toast.makeText(context, messageRes, Toast.LENGTH_LONG).show()
         }
     }
 

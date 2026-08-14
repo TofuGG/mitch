@@ -17,6 +17,10 @@
     <string name="settings_update_check_mode">Update check mode</string>
     <string name="settings_update_check_metered">Check updates when on metered connections</string>
     <string name="settings_update_check_metered_desc">If this option is disabled, Mitch will not check for updates on connections with data limits.</string>
+    <string name="settings_update_check_enabled">Automatic update checks</string>
+    <string name="settings_update_check_enabled_desc">Periodically check for game updates and show a notification when one is available.</string>
+    <string name="settings_per_game_update_tracking">Track individual game files</string>
+    <string name="settings_per_game_update_tracking_desc">Let you subscribe to specific files of a game so you get notified when they change, and unsubscribe from games you no longer care about.</string>
     <string name="settings_category_ui">Appearance</string>
     <string name="notification_channel_installing">Download or installation process</string>
     <string name="notification_channel_installing_desc">Show the current status of games during download or installation.</string>
@@ -55,6 +59,8 @@
     <string name="browser_share">Share link</string>
     <string name="search_games_hint">Search for games or creators</string>
     <string name="popup_download_started">Download started</string>
+    <string name="popup_download_upload_not_found">This download is no longer available.</string>
+    <string name="popup_download_error">Could not start the download.</string>
     <string name="menu_game_collection">Add to collection</string>
     <string name="menu_game_devlog">Devlog</string>
     <string name="menu_game_rate">Rate or Review</string>
@@ -64,6 +70,10 @@
     <string name="menu_game_author">More from %1$s</string>
     <string name="menu_game_author_generic">More from this creator</string>
     <string name="menu_game_subscribe">Subscribe to updates</string>
+    <string name="menu_game_subscribe_more">Subscribe to more files…</string>
+    <string name="menu_game_unsubscribe">Stop tracking updates</string>
+    <string name="popup_unsubscribed">No longer tracking updates for this game.</string>
+    <string name="popup_subscribe_error">Could not open the subscription dialog.</string>
     <string name="popup_subscribe_game_not_owned">Cannot subscribe to a product that we haven\'t purchased.</string>
     <string name="popup_subscribe_game_all_subscribed">You have already subscribed to all available files.</string>
     <string name="dialog_subscribe_title">Subscription</string>
@@ -173,6 +183,10 @@
     <string name="popup_no_network_connection">Checking updates requires a network connection</string>
     <string name="settings_android_only_filter">Android: filter downloadable only</string>
     <string name="settings_android_only_filter_desc">When browsing Android games, hide entries which are available only on other stores.</string>
+    <string name="settings_tag_exclusion_enabled">Exclude tags in Browse</string>
+    <string name="settings_tag_exclusion_enabled_desc">Adds a button to the Browse screen for hiding games with selected tags.</string>
+    <string name="settings_scroll_to_top_enabled">Scroll to top button</string>
+    <string name="settings_scroll_to_top_enabled_desc">Adds a button to quickly scroll back to the top of the page in Browse.</string>
     <string name="settings_lang_default">Default</string>
     <string name="settings_lang_site">Depends on site</string>
     <string name="settings_lang_system">Depends on system</string>
@@ -235,6 +249,12 @@
         <item quantity="one">%d genre excluded</item>
         <item quantity="other">%d genres excluded</item>
     </plurals>
+    <string name="browser_filter_exclude_tags">Exclude tags…</string>
+    <plurals name="browser_filter_exclude_tags_active">
+        <item quantity="one">%d tag excluded</item>
+        <item quantity="other">%d tags excluded</item>
+    </plurals>
+    <string name="browser_scroll_to_top">Scroll to top</string>
     <string name="settings_exclude_tags">Exclude game tag from home page</string>
     <string name="settings_exclude_tags_show_all">Show all games</string>
     <string name="settings_exclude_tags_error">Error: could not load list of tags. Are you connected to the Internet?</string>

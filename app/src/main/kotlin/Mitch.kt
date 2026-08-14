@@ -91,6 +91,11 @@ const val PREF_START_PAGE_EXCLUDE = "mitch.start_page_exclude"
 const val PREF_START_PAGE_EXCLUDE_DISPLAY_STRING = "mitch.start_page_exclude.display_string"
 const val PREF_NO_NOTIFICATIONS = "mitch.no_notifications"
 
+const val PREF_UPDATE_CHECK_ENABLED = "mitch.update_check_enabled"
+const val PREF_UPDATE_TRACKING_ENABLED = "mitch.per_game_update_tracking"
+const val PREF_TAG_EXCLUSION_ENABLED = "mitch.tag_exclusion_enabled"
+const val PREF_SCROLL_TO_TOP_ENABLED = "mitch.scroll_to_top_enabled"
+
 const val PREF_DEBUG_WEB_GAMES_IN_BROWSE_TAB = "mitch.debug.web_games_in_browse"
 
 
@@ -159,8 +164,20 @@ class Mitch : Application() {
         SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
             when (key) {
                 "preference_update_check_if_metered" -> {
-                    registerUpdateCheckTask(prefs.getBoolean(key, false),
+                    if (prefs.getBoolean(PREF_UPDATE_CHECK_ENABLED, true)) {
+                        registerUpdateCheckTask(prefs.getBoolean(key, false),
+                                ExistingPeriodicWorkPolicy.UPDATE)
+                    }
+                }
+                PREF_UPDATE_CHECK_ENABLED -> {
+                    if (prefs.getBoolean(key, true)) {
+                        registerUpdateCheckTask(
+                            prefs.getBoolean("preference_update_check_if_metered", true),
                             ExistingPeriodicWorkPolicy.UPDATE)
+                    } else {
+                        WorkManager.getInstance(applicationContext)
+                            .cancelUniqueWork(UPDATE_CHECK_TASK_TAG)
+                    }
                 }
                 "preference_theme",
                 "current_site_theme" -> setThemeFromPreferences(prefs)
@@ -237,7 +254,8 @@ class Mitch : Application() {
         }
 
         val workOnMetered = sharedPreferences.getBoolean("preference_update_check_if_metered", true)
-        registerUpdateCheckTask(!workOnMetered, ExistingPeriodicWorkPolicy.KEEP)
+        if (sharedPreferences.getBoolean(PREF_UPDATE_CHECK_ENABLED, true))
+            registerUpdateCheckTask(!workOnMetered, ExistingPeriodicWorkPolicy.KEEP)
 
         sharedPreferences.registerOnSharedPreferenceChangeListener(preferenceChangeListener)
 

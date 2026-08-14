@@ -50,15 +50,21 @@ import com.leinardi.android.speeddial.SpeedDialView.OnChangeListener
 import garden.appl.mitch.BuildConfig
 import garden.appl.mitch.ItchWebsiteUtils
 import garden.appl.mitch.PREF_DEBUG_WEB_GAMES_IN_BROWSE_TAB
+import garden.appl.mitch.PREF_SCROLL_TO_TOP_ENABLED
+import garden.appl.mitch.PREF_TAG_EXCLUSION_ENABLED
+import garden.appl.mitch.PREF_UPDATE_TRACKING_ENABLED
 import garden.appl.mitch.PREF_WARN_WRONG_OS
 import garden.appl.mitch.PREF_WEB_ANDROID_FILTER
 import garden.appl.mitch.R
 import garden.appl.mitch.SessionCookieStore
 import garden.appl.mitch.Utils
 import garden.appl.mitch.client.ItchBrowseHandler
+import garden.appl.mitch.client.ItchTag
+import garden.appl.mitch.client.ItchTagsParser
 import garden.appl.mitch.client.ItchWebsiteParser
 import garden.appl.mitch.client.SpecialBundleHandler
 import garden.appl.mitch.data.ItchGenre
+import garden.appl.mitch.database.AppDatabase
 import garden.appl.mitch.database.installation.Installation
 import garden.appl.mitch.databinding.BrowseFragmentBinding
 import kotlinx.coroutines.CoroutineScope
@@ -77,6 +83,7 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         private const val LOGGING_TAG = "BrowseFragment"
         private const val WEB_VIEW_STATE_KEY: String = "WebView"
         private const val GENRES_EXCLUSION_FILTER: String = "GenresFilter"
+        private const val TAGS_EXCLUSION_FILTER: String = "TagsFilter"
 
         private const val APP_BAR_ACTIONS_DEFAULT = 1
         private const val APP_BAR_ACTIONS_FROM_HTML = 2
@@ -105,6 +112,12 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
      */
     private var genresExclusionFilter: Set<ItchGenre>? = null
 
+    /**
+     * Game tags to hide from a catalogue page, by localized tag name.
+     * Set to null (and subsequently the list is forgotten) when we navigate to a non-catalogue page
+     */
+    private var tagsExclusionFilter: Set<String>? = null
+
     private val openDocumentLauncher = registerForActivityResult(OpenDocument()) { uri ->
         uri?.let { filePathCallback?.onReceiveValue(arrayOf(it)) }
         filePathCallback = null
@@ -126,6 +139,7 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         genresExclusionFilter = savedInstanceState?.getStringArray(GENRES_EXCLUSION_FILTER)?.map {
             ItchGenre.valueOf(it)
         }?.toSet()
+        tagsExclusionFilter = savedInstanceState?.getStringArray(TAGS_EXCLUSION_FILTER)?.toSet()
     }
 
     override fun onCreateView(
@@ -194,24 +208,8 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         //Set up FAB buttons
         //(colors don't matter too much as they will be set by updateUI() anyway)
         val speedDial = (activity as MainActivity).binding.speedDial
-        speedDial.clearActionItems()
-        speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_reload, R.drawable.ic_baseline_refresh_24)
-            .setLabel(R.string.browser_reload)
-            .create()
-        )
-        speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_search, R.drawable.ic_baseline_search_24)
-            .setLabel(R.string.browser_search)
-            .create()
-        )
-        speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_open_in_browser, R.drawable.ic_baseline_open_in_browser_24)
-            .setLabel(R.string.browser_open_in_browser)
-            .create()
-        )
-        speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_share, R.drawable.ic_baseline_share_24)
-            .setLabel(R.string.browser_share)
-            .create()
-        )
-        
+        setupSpeedDialActions(speedDial)
+
         speedDial.setOnActionSelectedListener { actionItem ->
             speedDial.close()
 
@@ -295,6 +293,60 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 
                     return@setOnActionSelectedListener true
                 }
+                R.id.browser_scroll_to_top -> {
+                    webView.evaluateJavascript(
+                        "window.scrollTo({top: 0, behavior: 'smooth'});", null
+                    )
+                    return@setOnActionSelectedListener true
+                }
+                R.id.browser_filter_exclude_tags -> {
+                    val currentExclusions = tagsExclusionFilter?.toMutableSet() ?: mutableSetOf()
+                    launch {
+                        val tags = try {
+                            ItchTagsParser.parseTags(ItchTag.Classification.GAME)
+                        } catch (e: Exception) {
+                            Log.e(LOGGING_TAG, "Could not load tags", e)
+                            Toast.makeText(
+                                requireContext(),
+                                R.string.settings_exclude_tags_error,
+                                Toast.LENGTH_LONG
+                            ).show()
+                            return@launch
+                        }
+                        if (tags.isEmpty()) {
+                            Toast.makeText(
+                                requireContext(),
+                                R.string.settings_exclude_tags_error,
+                                Toast.LENGTH_LONG
+                            ).show()
+                            return@launch
+                        }
+                        val tagNames = tags.map { it.name }
+                        val checked = BooleanArray(tagNames.size) { index ->
+                            currentExclusions.contains(tagNames[index])
+                        }
+                        val dialog = AlertDialog.Builder(requireContext()).run {
+                            setTitle(R.string.browser_filter_exclude_tags)
+                            setMultiChoiceItems(tagNames.toTypedArray(), checked) { _, index, isChecked ->
+                                if (isChecked)
+                                    currentExclusions.add(tagNames[index])
+                                else
+                                    currentExclusions.remove(tagNames[index])
+                            }
+                            setPositiveButton(R.string.dialog_apply) { _, _ ->
+                                tagsExclusionFilter = currentExclusions.toSet()
+                                updateUI()
+                            }
+                            setNegativeButton(R.string.dialog_reset) { _, _ ->
+                                tagsExclusionFilter = emptySet()
+                                updateUI()
+                            }
+                            create()
+                        }
+                        dialog.show()
+                    }
+                    return@setOnActionSelectedListener true
+                }
                 R.id.browser_filter_exclude_genres -> {
                     data class GenreChoice(val genre: ItchGenre) {
                         override fun toString() = requireContext().getString(genre.nameResource)
@@ -373,6 +425,7 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         outState.putStringArray(GENRES_EXCLUSION_FILTER, genresExclusionFilter?.map {
             it.name
         }?.toTypedArray())
+        outState.putStringArray(TAGS_EXCLUSION_FILTER, tagsExclusionFilter?.toTypedArray())
 
         val webViewState = Bundle()
         webView.saveState(webViewState)
@@ -396,6 +449,13 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         webView.onResume()
 //        webView.resumeTimers()
         chromeClient.onResume()
+
+        // Reflect preference changes (e.g. enabling/disabling the scroll-to-top button
+        // or the tag exclusion filter) made while another fragment was visible.
+        (activity as? MainActivity)?.binding?.speedDial?.let { speedDial ->
+            setupSpeedDialActions(speedDial)
+            updateUI()
+        }
     }
 
     override fun onDestroy() {
@@ -455,8 +515,9 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         val gameButton = mainActivity.binding.gameButton
         val gameButtonInfo = mainActivity.binding.gameButtonInfo
 
-        updateGenreFilterAndAction(speedDial)
+        updateFiltersAndAction(speedDial)
         filterExcludedGenres()
+        filterExcludedTags()
 
         if (doc?.let { ItchWebsiteUtils.isGamePage(doc) } == true) {
             // Hide app's navbar after hiding web navbar
@@ -710,10 +771,39 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         }
     }
 
-    private fun updateGenreFilterAndAction(speedDial: SpeedDialView) {
+    private fun setupSpeedDialActions(speedDial: SpeedDialView) {
+        speedDial.clearActionItems()
+        speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_reload, R.drawable.ic_baseline_refresh_24)
+            .setLabel(R.string.browser_reload)
+            .create()
+        )
+        speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_search, R.drawable.ic_baseline_search_24)
+            .setLabel(R.string.browser_search)
+            .create()
+        )
+        val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        if (prefs.getBoolean(PREF_SCROLL_TO_TOP_ENABLED, true)) {
+            speedDial.addActionItem(SpeedDialActionItem.Builder(
+                R.id.browser_scroll_to_top, R.drawable.ic_baseline_keyboard_arrow_up_24)
+                .setLabel(R.string.browser_scroll_to_top)
+                .create()
+            )
+        }
+        speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_open_in_browser, R.drawable.ic_baseline_open_in_browser_24)
+            .setLabel(R.string.browser_open_in_browser)
+            .create()
+        )
+        speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_share, R.drawable.ic_baseline_share_24)
+            .setLabel(R.string.browser_share)
+            .create()
+        )
+    }
+
+    private fun updateFiltersAndAction(speedDial: SpeedDialView) {
         if (url == null)
             return
         val uri = Uri.parse(url)
+        val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
         if (ItchWebsiteUtils.isGameCataloguePage(uri)) {
             val genreExcludeSet = genresExclusionFilter ?: emptySet<ItchGenre>().also {
                 genresExclusionFilter = emptySet()
@@ -726,9 +816,23 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
                         genreExcludeSet.size, genreExcludeSet.size))
                 create()
             })
+
+            if (prefs.getBoolean(PREF_TAG_EXCLUSION_ENABLED, true)) {
+                val tagExcludeCount = tagsExclusionFilter?.size ?: 0
+                speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_filter_exclude_tags, R.drawable.ic_baseline_filter_alt_24).run {
+                    if (tagExcludeCount == 0)
+                        setLabel(R.string.browser_filter_exclude_tags)
+                    else
+                        setLabel(resources.getQuantityString(R.plurals.browser_filter_exclude_tags_active,
+                            tagExcludeCount, tagExcludeCount))
+                    create()
+                })
+            }
         } else {
             genresExclusionFilter = null
+            tagsExclusionFilter = null
             speedDial.removeActionItemById(R.id.browser_filter_exclude_genres)
+            speedDial.removeActionItemById(R.id.browser_filter_exclude_tags)
         }
         speedDial.show()
     }
@@ -793,15 +897,7 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
     private fun addAppBarActionsFromHtml(appBar: Toolbar, doc: Document) {
         appBar.menu.clear()
 
-//        if (ItchWebsiteUtils.isStorePage(doc) || ItchWebsiteUtils.isDownloadPage(doc)) {
-//            appBar.menu.add(APP_BAR_ACTIONS_DEFAULT, 0, 0, R.string.menu_game_subscribe)
-//                .setOnMenuItemClickListener {
-//                    this.launch {
-//                        showSubscriptionDialog(doc)
-//                    }
-//                    true
-//                }
-//        }
+        addSubscriptionAction(appBar, doc)
 
         val navbarItems = doc.getElementById("user_tools")?.children() ?: return
 
@@ -870,62 +966,125 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         }
     }
 
-//    private suspend fun showSubscriptionDialog(doc: Document) {
-//        val installations = if (ItchWebsiteUtils.hasGameDownloadLinks(doc)) {
-//            ItchWebsiteParser.getInstallations(doc)
-//        } else {
-//            val downloadUrl = url?.let {
-//                ItchWebsiteParser.getDownloadUrl(doc, it)?.url
-//            }
-//            if (downloadUrl == null) {
-//                Toast.makeText(context, R.string.popup_subscribe_game_not_owned, Toast.LENGTH_LONG)
-//                    .show()
-//                return
-//            }
-//            ItchWebsiteParser.getInstallations(ItchWebsiteUtils.fetchAndParse(downloadUrl))
-//        }
-//        val db = AppDatabase.getDatabase(requireContext())
-//        val subscriptions = db.installDao.getFinishedInstallationsAndSubscriptionsSync()
-//        val availableSubscriptions =
-//            installations.filter { install ->
-//                !subscriptions.any { subscription -> subscription.uploadId == install.uploadId }
-//            }
-//        if (availableSubscriptions.isEmpty()) {
-//            Toast.makeText(context, R.string.popup_subscribe_game_all_subscribed, Toast.LENGTH_LONG)
-//                .show()
-//            return
-//        }
-//        val subscribeOptions = availableSubscriptions.map { install ->
-//            val platforms = install.platformsStrings
-//            if (platforms.isEmpty())
-//                return@map install.uploadName
-//            else
-//                return@map "(${platforms.joinToString()}) ${install.uploadName}"
-//        }.toTypedArray()
-//        Log.d(LOGGING_TAG, subscribeOptions.joinToString())
-//        AlertDialog.Builder(requireContext()).run {
-//            setTitle(R.string.dialog_subscribe_title)
-////            setMessage(R.string.dialog_subscribe_message)
-//            setMultiChoiceItems(subscribeOptions, null) { _, _, _ -> /* NO-OP */ }
-//            setPositiveButton(R.string.dialog_subscribe_yes) { dialog, _ ->
-//                val checkedPositions = (dialog as AlertDialog).listView.checkedItemPositions
-//                val selectedSubscriptions = availableSubscriptions
-//                    .filterIndexed{ index, _ -> checkedPositions.get(index) }
-//                this@BrowseFragment.launch {
-//                    for (subscription in selectedSubscriptions) {
-//                        db.installDao.insert(subscription.copy(
-//                            status = Installation.STATUS_SUBSCRIPTION
-//                        ))
-//                    }
-//                    if (subscriptions.isNotEmpty())
-//                        (activity as MainActivity).setActiveFragment(MainActivity.UPDATES_FRAGMENT_TAG)
-//                }
-//            }
-//            setNegativeButton(R.string.dialog_cancel) { _, _ -> /* NO-OP */ }
-//            setCancelable(true)
-//            show()
-//        }
-//    }
+    /**
+     * Adds a "track updates" action to the app bar for store pages and download pages,
+     * letting the user subscribe to individual files of a game, or unsubscribe entirely.
+     * Only shown when per-game update tracking is enabled in the settings.
+     */
+    private fun addSubscriptionAction(appBar: Toolbar, doc: Document) {
+        if (!ItchWebsiteUtils.isStorePage(doc) && !ItchWebsiteUtils.isDownloadPage(doc))
+            return
+        val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        if (!prefs.getBoolean(PREF_UPDATE_TRACKING_ENABLED, true))
+            return
+
+        appBar.menu.add(APP_BAR_ACTIONS_DEFAULT, 0, 0, R.string.menu_game_subscribe)
+            .setOnMenuItemClickListener {
+                this.launch {
+                    handleSubscriptionAction(doc)
+                }
+                true
+            }
+    }
+
+    private suspend fun handleSubscriptionAction(doc: Document) {
+        val subscribedUploads = getSubscribedUploadsForGame(doc)
+        if (subscribedUploads.isEmpty()) {
+            showSubscriptionDialog(doc)
+            return
+        }
+        val options = arrayOf(
+            requireContext().getString(R.string.menu_game_subscribe_more),
+            requireContext().getString(R.string.menu_game_unsubscribe)
+        )
+        AlertDialog.Builder(requireContext()).run {
+            setTitle(R.string.dialog_subscribe_title)
+            setItems(options) { _, which ->
+                when (which) {
+                    0 -> this@BrowseFragment.launch { showSubscriptionDialog(doc) }
+                    1 -> this@BrowseFragment.launch { unsubscribeFromGame(doc) }
+                }
+            }
+            setNegativeButton(R.string.dialog_cancel) { _, _ -> /* NO-OP */ }
+            show()
+        }
+    }
+
+    private suspend fun getSubscribedUploadsForGame(doc: Document): List<Installation> {
+        val gameId = ItchWebsiteUtils.getGameId(doc) ?: return emptyList()
+        val db = AppDatabase.getDatabase(requireContext())
+        return db.installDao.getFinishedInstallationsAndSubscriptionsSync()
+            .filter { it.status == Installation.STATUS_SUBSCRIPTION && it.gameId == gameId }
+    }
+
+    private suspend fun unsubscribeFromGame(doc: Document) {
+        val subscriptions = getSubscribedUploadsForGame(doc)
+        if (subscriptions.isEmpty())
+            return
+        val db = AppDatabase.getDatabase(requireContext())
+        db.installDao.delete(subscriptions)
+        Toast.makeText(requireContext(), R.string.popup_unsubscribed, Toast.LENGTH_LONG).show()
+        updateUI()
+    }
+
+    private suspend fun showSubscriptionDialog(doc: Document) {
+        try {
+            val installations = if (ItchWebsiteUtils.hasGameDownloadLinks(doc)) {
+                ItchWebsiteParser.getInstallations(doc)
+            } else {
+                val storeUrl = url ?: return
+                val downloadUrl = ItchWebsiteParser.getOrFetchDownloadUrl(storeUrl, doc)?.url
+                if (downloadUrl == null) {
+                    Toast.makeText(context, R.string.popup_subscribe_game_not_owned, Toast.LENGTH_LONG)
+                        .show()
+                    return
+                }
+                ItchWebsiteParser.getInstallations(ItchWebsiteUtils.fetchAndParse(downloadUrl))
+            }
+            val db = AppDatabase.getDatabase(requireContext())
+            val subscriptions = db.installDao.getFinishedInstallationsAndSubscriptionsSync()
+            val availableSubscriptions =
+                installations.filter { install ->
+                    !subscriptions.any { subscription -> subscription.uploadId == install.uploadId }
+                }
+            if (availableSubscriptions.isEmpty()) {
+                Toast.makeText(context, R.string.popup_subscribe_game_all_subscribed, Toast.LENGTH_LONG)
+                    .show()
+                return
+            }
+            val subscribeOptions = availableSubscriptions.map { install ->
+                val platforms = install.platformsStrings
+                if (platforms.isEmpty())
+                    return@map install.uploadName
+                else
+                    return@map "(${platforms.joinToString()}) ${install.uploadName}"
+            }.toTypedArray()
+            Log.d(LOGGING_TAG, subscribeOptions.joinToString())
+            AlertDialog.Builder(requireContext()).run {
+                setTitle(R.string.dialog_subscribe_title)
+                setMultiChoiceItems(subscribeOptions, null) { _, _, _ -> /* NO-OP */ }
+                setPositiveButton(R.string.dialog_subscribe_yes) { dialog, _ ->
+                    val checkedPositions = (dialog as AlertDialog).listView.checkedItemPositions
+                    val selectedSubscriptions = availableSubscriptions
+                        .filterIndexed { index, _ -> checkedPositions.get(index) }
+                    this@BrowseFragment.launch {
+                        for (subscription in selectedSubscriptions) {
+                            db.installDao.insert(subscription.copy(
+                                status = Installation.STATUS_SUBSCRIPTION
+                            ))
+                        }
+                        updateUI()
+                    }
+                }
+                setNegativeButton(R.string.dialog_cancel) { _, _ -> /* NO-OP */ }
+                setCancelable(true)
+                show()
+            }
+        } catch (e: Exception) {
+            Log.e(LOGGING_TAG, "Could not open subscription dialog", e)
+            Toast.makeText(context, R.string.popup_subscribe_error, Toast.LENGTH_LONG).show()
+        }
+    }
 
     /**
      * Adds basic app bar actions for navigating between fragments.
@@ -985,6 +1144,8 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
                 {
                 	const excludeFilter = $excludeString
                     const gameGrid = document.querySelector(".browse_game_grid")
+                    if (!gameGrid)
+                        return
 
                 	for (const gameCell of gameGrid.getElementsByClassName("game_cell")) {
                 		const genre = gameCell.querySelector(".game_genre")
@@ -1002,7 +1163,51 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
             )
         }
     }
-    
+
+    private fun filterExcludedTags() {
+        val excludeSet = tagsExclusionFilter ?: return
+        if (excludeSet.isEmpty())
+            return
+
+        val excludeString = excludeSet.joinToString(prefix = "[", postfix = "]") { tag ->
+            if (tag.contains('"'))
+                throw IllegalStateException("Bad tag name!")
+            "\"$tag\""
+        }
+
+        Log.d(LOGGING_TAG, "Tag exclusion filter array: $excludeString")
+
+        webView.post {
+            webView.evaluateJavascript("""
+                {
+                	const excludeFilter = $excludeString
+                    const gameGrid = document.querySelector(".browse_game_grid")
+                    if (!gameGrid)
+                        return
+
+                	for (const gameCell of gameGrid.getElementsByClassName("game_cell")) {
+                		const tagLinks = gameCell.querySelectorAll(".game_tags a, a[data-tag]")
+                        let excluded = false
+                		for (const tagLink of tagLinks) {
+                            if (excludeFilter.includes(tagLink.textContent.trim())) {
+                                excluded = true
+                                break
+                            }
+                        }
+
+                		if (excluded) {
+                			gameCell.setAttribute("style", "display: none")
+                			gameCell.setAttribute("data-mitch-excluded-tag", "true")
+                		} else if (gameCell.hasAttribute("data-mitch-excluded-tag")) {
+                			gameCell.removeAttribute("style")
+                			gameCell.removeAttribute("data-mitch-excluded-tag")
+                		}
+                    }
+                }
+                """.trimIndent(), null
+            )
+        }
+    }
 
     @Keep // prevent this class from being removed by compiler optimizations
     private class MitchJavaScriptInterface(val fragment: BrowseFragment) {
