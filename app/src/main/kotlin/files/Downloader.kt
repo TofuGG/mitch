@@ -230,14 +230,29 @@ object Downloader {
                     })
                 }
 
-                response.use {
-                    listener.onProgress(applicationContext, fileName, downloadOrInstallId, null)
+                    response.use {
+                        listener.onProgress(applicationContext, fileName, downloadOrInstallId, null)
 
-                    outputStream.use {
-                        download(response, it, fileName, downloadOrInstallId, listener)
-                    }
+                        outputStream.use {
+                            download(response, it, fileName, downloadOrInstallId, listener)
+                        }
 
-                    with(NotificationManagerCompat.from(applicationContext)) {
+                        // Verify the file wasn't truncated or corrupted while downloading.
+                        // Installing a partial APK would otherwise end in Android's cryptic
+                        // "There was a problem parsing the package" error.
+                        if (downloadDir != null) {
+                            val file = File(downloadDir, fileName)
+                            if (downloadType == DownloadType.INSTALL_APK
+                                || downloadType == DownloadType.INSTALL_MISC) {
+                                if (contentLength > 0 && file.length() != contentLength)
+                                    throw IOException(
+                                        "Download incomplete: got ${file.length()} of $contentLength bytes")
+                                if (downloadType == DownloadType.INSTALL_APK && !Utils.isValidZip(file))
+                                    throw IOException("Downloaded file is not a valid APK")
+                            }
+                        }
+
+                        with(NotificationManagerCompat.from(applicationContext)) {
                         if (Utils.fitsInInt(downloadOrInstallId))
                             cancel(NOTIFICATION_TAG_DOWNLOAD, downloadOrInstallId.toInt())
                         else
@@ -286,7 +301,8 @@ object Downloader {
 
             BufferedInputStream(body.byteStream()).use { inputStream ->
                 Utils.cancellableCopy(inputStream, outputStream) { bytesRead ->
-                    val currentProgress: Long = 100 * bytesRead / totalBytes
+                    val currentProgress: Long =
+                        if (totalBytes > 0) 100 * bytesRead / totalBytes else 0
                     if (currentProgress != progressPercent) {
                         listener.onProgress(applicationContext,
                                 fileName, downloadId, currentProgress.toInt())

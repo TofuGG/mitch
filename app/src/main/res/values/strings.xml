@@ -105,6 +105,9 @@
     <string name="notification_channel_web_running">Web game is running</string>
     <string name="notification_channel_web_running_desc">Notify when a game is running inside the app\'s web browser.</string>
     <string name="notification_download_error">Error while downloading: %1$s</string>
+    <string name="notification_download_missing_file">The downloaded file is missing.</string>
+    <string name="popup_download_missing">The downloaded file is missing. Please download the game again.</string>
+    <string name="popup_install_error">Could not install the game.</string>
     <string name="select_app_for_file">Open this file using</string>
     <string name="popup_game_deleted">%1$s has been deleted.</string>
     <string name="dialog_cancel_download_done">Cancelled download.</string>

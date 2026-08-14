@@ -212,6 +212,17 @@ object Utils {
     }
 
     /**
+     * Checks whether [file] is a structurally valid ZIP archive (APKs are ZIP files).
+     * Used to detect truncated or corrupted downloads before they get installed.
+     */
+    fun isValidZip(file: File): Boolean = try {
+        java.util.zip.ZipFile(file).use { true }
+    } catch (e: Exception) {
+        Log.d("Utils", "File is not a valid ZIP archive: ${file.name}", e)
+        false
+    }
+
+    /**
      * Check if we're connected to some type of Internet network. Doesn't necessarily mean that
      * the connection is working!
      *

@@ -58,14 +58,21 @@ object Installations {
         }
     }
 
-    suspend fun cancelPending(context: Context, pendingInstall: Installation) =
+    suspend fun cancelPending(context: Context, pendingInstall: Installation) {
+        val downloadOrInstallId = pendingInstall.downloadOrInstallId
+        if (downloadOrInstallId == null) {
+            // No active download/install session behind this row anymore; just remove it.
+            AppDatabase.getDatabase(context).installDao.delete(pendingInstall.internalId)
+            return
+        }
         cancelPending(
             context,
             pendingInstall.status,
-            pendingInstall.downloadOrInstallId!!,
+            downloadOrInstallId,
             pendingInstall.uploadId,
             pendingInstall.internalId
         )
+    }
 
     suspend fun cancelPending(
         context: Context,

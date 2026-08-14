@@ -107,11 +107,23 @@ class InstallationDownloadFileListener : DownloadFileListener() {
         val downloadFileManager = Mitch.installDownloadManager
 
         val db = AppDatabase.getDatabase(context)
-        val pendingInstall = db.installDao.getPendingInstallationByDownloadId(downloadOrInstallId)!!
+        val pendingInstall = db.installDao.getPendingInstallationByDownloadId(downloadOrInstallId)
+        if (pendingInstall == null) {
+            // The pending installation was deleted while the download was in progress
+            // (e.g. the user cancelled it or cleared the library). Clean up the orphaned
+            // file instead of crashing the worker thread.
+            Log.e(LOGGING_TAG, "Pending installation $downloadOrInstallId is gone at download completion")
+            uploadId?.let { downloadFileManager.deletePendingFile(it) }
+            return
+        }
 
         val notificationFile: File? = when (type) {
-            DownloadType.INSTALL_APK ->
-                downloadFileManager.getPendingFile(uploadId!!)
+            DownloadType.INSTALL_APK -> {
+                val file = uploadId?.let { downloadFileManager.getPendingFile(it) }
+                if (file == null)
+                    Log.e(LOGGING_TAG, "APK file is missing for upload $uploadId after download completed")
+                file
+            }
             DownloadType.INSTALL_MISC -> {
                 Installations.deleteOutdatedInstalls(context, pendingInstall)
                 downloadFileManager.replacePendingFile(uploadId!!)
@@ -120,6 +132,13 @@ class InstallationDownloadFileListener : DownloadFileListener() {
             }
             else -> null
         }
+        if (type == DownloadType.INSTALL_APK && notificationFile == null) {
+            createResultNotification(context, fileName, type, null, downloadOrInstallId,
+                context.getString(R.string.notification_download_missing_file), null)
+            Mitch.databaseHandler.onDownloadFailed(downloadOrInstallId)
+            return
+        }
+
         createResultNotification(context, fileName, type, notificationFile, downloadOrInstallId, null, null)
         Mitch.databaseHandler.onDownloadComplete(pendingInstall, type)
     }
@@ -137,7 +156,7 @@ class InstallationDownloadFileListener : DownloadFileListener() {
 
         val db = AppDatabase.getDatabase(context)
         db.withTransaction {
-            Mitch.installDownloadManager.deletePendingFile(uploadId!!)
+            uploadId?.let { Mitch.installDownloadManager.deletePendingFile(it) }
             Mitch.databaseHandler.onDownloadFailed(downloadOrInstallId)
         }
     }

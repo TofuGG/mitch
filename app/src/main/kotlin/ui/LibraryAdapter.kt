@@ -133,6 +133,20 @@ class LibraryAdapter internal constructor(
     }
 
     override fun getItemCount() = gameInstalls.size
+
+    /**
+     * Marks an installation row as failed so it stays visible in the library as
+     * "Installation failed" instead of silently disappearing or hanging forever.
+     */
+    private suspend fun markInstallFailed(gameInstall: GameInstallation) {
+        val db = AppDatabase.getDatabase(context)
+        db.installDao.getInstallationById(gameInstall.installId)?.let { install ->
+            db.installDao.update(install.copy(
+                status = Installation.STATUS_FAILURE,
+                downloadOrInstallId = null
+            ))
+        }
+    }
     
     private fun onCardClick(view: View) {
         val position = list.getChildLayoutPosition(view)
@@ -165,23 +179,41 @@ class LibraryAdapter internal constructor(
             val notificationService = context.getSystemService(Activity.NOTIFICATION_SERVICE)
                     as NotificationManager
 
-            if (Utils.fitsInInt(gameInstall.downloadOrInstallId!!)) {
-                notificationService.cancel(NOTIFICATION_TAG_DOWNLOAD,
-                    gameInstall.downloadOrInstallId.toInt())
-            } else {
-                notificationService.cancel(NOTIFICATION_TAG_DOWNLOAD_LONG,
-                    gameInstall.downloadOrInstallId.toInt())
+            gameInstall.downloadOrInstallId?.let { downloadOrInstallId ->
+                if (Utils.fitsInInt(downloadOrInstallId)) {
+                    notificationService.cancel(NOTIFICATION_TAG_DOWNLOAD,
+                        downloadOrInstallId.toInt())
+                } else {
+                    notificationService.cancel(NOTIFICATION_TAG_DOWNLOAD_LONG,
+                        downloadOrInstallId.toInt())
+                }
             }
 
             mainActivityScope.launch {
-                val installer = Installations.getInstaller(gameInstall.downloadOrInstallId)
-                when (installer.type) {
-                    AbstractInstaller.Type.File -> {
-                        val file = Mitch.installDownloadManager.getPendingFile(gameInstall.uploadId)!!
-                        installer.requestInstall(context, gameInstall.downloadOrInstallId, file)
+                try {
+                    val downloadOrInstallId = gameInstall.downloadOrInstallId
+                        ?: throw IllegalStateException("Install has no download id")
+
+                    val installer = Installations.getInstaller(downloadOrInstallId)
+                    when (installer.type) {
+                        AbstractInstaller.Type.File -> {
+                            val file = Mitch.installDownloadManager.getPendingFile(gameInstall.uploadId)
+                            if (file == null) {
+                                // Downloaded file was deleted (e.g. cache cleaned up by the
+                                // system); mark the install as failed instead of doing nothing.
+                                markInstallFailed(gameInstall)
+                                Toast.makeText(context, R.string.popup_download_missing, Toast.LENGTH_LONG)
+                                    .show()
+                            } else {
+                                installer.requestInstall(context, downloadOrInstallId, file)
+                            }
+                        }
+                        AbstractInstaller.Type.Stream ->
+                            installer.finishStreamInstall(context, downloadOrInstallId.toInt(), gameInstall.game.name)
                     }
-                    AbstractInstaller.Type.Stream ->
-                        installer.finishStreamInstall(context, gameInstall.downloadOrInstallId.toInt(), gameInstall.game.name)
+                } catch (e: Exception) {
+                    Log.e(LOGGING_TAG, "Could not install ${gameInstall.game.name}", e)
+                    Toast.makeText(context, R.string.popup_install_error, Toast.LENGTH_LONG).show()
                 }
             }
         } else if (type == GameRepository.Type.WebCached) {

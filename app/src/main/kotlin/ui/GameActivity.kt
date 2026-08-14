@@ -188,6 +188,11 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
         webView.settings.builtInZoomControls = true
         webView.settings.displayZoomControls = false
 
+        // Start every game fully zoomed out so the whole page is visible, even for
+        // games that ship without a viewport meta tag or with a fixed-size canvas.
+        // The user can still pinch-zoom thanks to the settings above.
+        webView.setInitialScale(1)
+
         webView.settings.mediaPlaybackRequiresUserGesture = false
         webView.webViewClient = GameWebViewClient()
         webView.webChromeClient = chromeClient

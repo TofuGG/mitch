@@ -95,7 +95,7 @@ class InstallationDatabaseManager(val context: Context)  {
         Log.d(LOGGING_TAG, "onInstallStart")
 
         val db = AppDatabase.getDatabase(context)
-        val pendingInstall = db.installDao.getPendingInstallationByDownloadId(downloadId)!!
+        val pendingInstall = db.installDao.getPendingInstallationByDownloadId(downloadId) ?: return
 
         pendingInstall.status = Installation.STATUS_INSTALLING
         pendingInstall.downloadOrInstallId = pendingInstallId
