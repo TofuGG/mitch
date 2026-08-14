@@ -30,6 +30,7 @@
     <string name="notification_install_unknown_title">Unknown error</string>
     <string name="notification_install_blocked_title">Installation blocked</string>
     <string name="notification_install_conflict_title">App conflicts with another package</string>
+    <string name="notification_install_conflict_action_uninstall">Uninstall old version</string>
     <string name="notification_install_incompatible_title">App is incompatible with your device</string>
     <string name="notification_install_invalid_title">Invalid file</string>
     <string name="notification_install_storage_title">Installation failed: storage issues</string>

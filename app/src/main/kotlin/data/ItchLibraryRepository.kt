@@ -8,16 +8,21 @@ import garden.appl.mitch.client.ItchLibraryParser
 import kotlinx.coroutines.flow.Flow
 
 class ItchLibraryRepository {
-    private val itchLibraryPagingSource = ItchLibraryPagingSource()
-    
-    fun getLibraryStream(): Flow<PagingData<ItchLibraryItem>> {
+    private val itchLibraryPagingSource = ItchLibraryPagingSource(false)
+
+    fun getLibraryStream(androidOnly: Boolean = false): Flow<PagingData<ItchLibraryItem>> {
         return Pager(
             config = PagingConfig(
                 pageSize = ItchLibraryParser.PAGE_SIZE,
                 enablePlaceholders = false,
                 initialLoadSize = ItchLibraryParser.PAGE_SIZE
             ),
-            pagingSourceFactory = { itchLibraryPagingSource }
+            pagingSourceFactory = {
+                if (androidOnly)
+                    ItchLibraryPagingSource(true)
+                else
+                    itchLibraryPagingSource
+            }
         ).flow
     }
 }

@@ -8,6 +8,7 @@ import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.preference.PreferenceManager
 import garden.appl.mitch.ItchWebsiteUtils
+import garden.appl.mitch.Mitch
 import garden.appl.mitch.PREF_LANG_SITE_LOCALE
 import garden.appl.mitch.PREF_WARN_WRONG_OS
 import garden.appl.mitch.R
@@ -114,7 +115,10 @@ class ItchBrowseHandler(private val context: MitchActivity, private val scope: C
         }
         val prefs = PreferenceManager.getDefaultSharedPreferences(context)
         prefs.edit(commit = true) {
-            if (ItchWebsiteUtils.shouldHandleDayNightThemes(doc)) {
+            // Only adopt the site's light/dark theme when the app is actually visible;
+            // a page that finishes loading in the background must not flip the app theme.
+            // (mentioned in https://todo.sr.ht/~gardenapple/mitch/78)
+            if (Mitch.foregroundActivityCount > 0 && ItchWebsiteUtils.shouldHandleDayNightThemes(doc)) {
                 if (ItchWebsiteUtils.isDarkTheme(doc))
                     putString("current_site_theme", "dark")
                 else

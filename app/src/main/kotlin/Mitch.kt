@@ -1,11 +1,13 @@
 package garden.appl.mitch
 
+import android.app.Activity
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
+import android.os.Bundle
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.edit
 import androidx.preference.PreferenceManager
@@ -111,6 +113,12 @@ class Mitch : Application() {
     companion object {
         const val LOGGING_TAG: String = "MitchApp"
 
+        // Number of activities currently resumed. Used to keep the site theme from
+        // being applied while the app is in the background.
+        @Volatile
+        var foregroundActivityCount: Int = 0
+            private set
+
         // Used for lazy initialization, and for locale stuff
         private lateinit var mitchContext: MitchContextWrapper
         private lateinit var cacheDir: File
@@ -186,15 +194,38 @@ class Mitch : Application() {
                     }
                 }
                 "preference_theme",
-                "current_site_theme" -> setThemeFromPreferences(prefs)
+                "current_site_theme" -> {
+                    // A page can finish loading while the app is in the background (or the
+                    // WebView otherwise isn't visible); don't flip the whole app's night mode
+                    // for it. The theme is applied again when the app returns to the foreground.
+                    // (mentioned in https://todo.sr.ht/~gardenapple/mitch/78)
+                    if (foregroundActivityCount > 0)
+                        setThemeFromPreferences(prefs)
+                }
                 PREF_LANG,
                 PREF_LANG_SITE_LOCALE -> setLangFromPreferences(prefs)
             }
         }
 
+    private val activityLifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
+        override fun onActivityResumed(activity: Activity) {
+            foregroundActivityCount++
+        }
+
+        override fun onActivityPaused(activity: Activity) {
+            foregroundActivityCount--
+        }
+
+        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+        override fun onActivityStarted(activity: Activity) {}
+        override fun onActivityStopped(activity: Activity) {}
+        override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+        override fun onActivityDestroyed(activity: Activity) {}
+    }
 
     override fun onCreate() {
         super.onCreate()
+        registerActivityLifecycleCallbacks(activityLifecycleCallbacks)
         if (ACRA.isACRASenderServiceProcess())
             return
 

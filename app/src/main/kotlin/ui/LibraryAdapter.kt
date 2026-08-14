@@ -417,7 +417,8 @@ class LibraryAdapter internal constructor(
             R.id.web_install_launcher_shortcut -> {
                 mainActivityScope.launch {
                     val shortcut = GameActivity.makeShortcut(game, context)
-                    if (!ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)) {
+                    if (shortcut == null ||
+                        !ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)) {
                         Toast.makeText(context, R.string.popup_web_install_launcher_shortcut_error, Toast.LENGTH_LONG)
                             .show()
                     }

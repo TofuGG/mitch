@@ -3,6 +3,7 @@ package garden.appl.mitch.ui
 import android.content.Intent
 import android.os.Bundle
 import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import androidx.appcompat.widget.SearchView
 import androidx.core.content.ContextCompat
@@ -12,6 +13,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.paging.LoadState
+import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import garden.appl.mitch.ItchWebsiteUtils
 import garden.appl.mitch.R
@@ -31,8 +33,7 @@ class OwnedGamesActivity : MitchActivity() {
 
         private const val LAST_SEARCH_QUERY = "last_search"
         private const val LAST_ANDROID_ONLY_FILTER = "ua.gardenapple.itchupdater.lastupdatecheck.last_android_only"
-//        private const val DEFAULT_ANDROID_ONLY_FILTER = false
-        private const val androidOnlyFilter = false
+        private const val DEFAULT_ANDROID_ONLY_FILTER = false
     }
 
     private lateinit var binding: OwnedActivityBinding
@@ -42,7 +43,7 @@ class OwnedGamesActivity : MitchActivity() {
     private var loadJob: Job? = null
     private val repository = ItchLibraryRepository()
 
-//    private var androidOnlyFilter: Boolean = DEFAULT_ANDROID_ONLY_FILTER
+    private var androidOnlyFilter: Boolean = DEFAULT_ANDROID_ONLY_FILTER
     private var searchString: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -97,10 +98,10 @@ class OwnedGamesActivity : MitchActivity() {
         }
         binding.ownedItemsList.layoutManager = LinearLayoutManager(this)
 
-//        androidOnlyFilter =
-//            savedInstanceState?.getBoolean(LAST_ANDROID_ONLY_FILTER, DEFAULT_ANDROID_ONLY_FILTER)
-//                ?: PreferenceManager.getDefaultSharedPreferences(this).getBoolean(
-//                    LAST_ANDROID_ONLY_FILTER, DEFAULT_ANDROID_ONLY_FILTER)
+        androidOnlyFilter =
+            savedInstanceState?.getBoolean(LAST_ANDROID_ONLY_FILTER, DEFAULT_ANDROID_ONLY_FILTER)
+                ?: PreferenceManager.getDefaultSharedPreferences(this).getBoolean(
+                    LAST_ANDROID_ONLY_FILTER, DEFAULT_ANDROID_ONLY_FILTER)
         searchString = savedInstanceState?.getString(LAST_SEARCH_QUERY) ?: ""
 
         loadItems(searchString, androidOnlyFilter)
@@ -159,7 +160,7 @@ class OwnedGamesActivity : MitchActivity() {
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.owned_actions, menu)
-//        menu.findItem(R.id.only_android).isChecked = androidOnlyFilter
+        menu.findItem(R.id.only_android).isChecked = androidOnlyFilter
 
         val searchView: SearchView = menu.findItem(R.id.games_search).actionView as SearchView
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
@@ -176,19 +177,20 @@ class OwnedGamesActivity : MitchActivity() {
         return true
     }
 
-//    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-//        when (item.itemId) {
-//            R.id.only_android -> {
-//                androidOnlyFilter = !item.isChecked
-//                loadItems(searchString, androidOnlyFilter)
-//                val sharedPrefs = PreferenceManager.getDefaultSharedPreferences(this)
-//                sharedPrefs.edit {
-//                    putBoolean(LAST_ANDROID_ONLY_FILTER, androidOnlyFilter)
-//                }
-//                item.isChecked = androidOnlyFilter
-//                return true
-//            }
-//        }
-//        return false
-//    }
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        when (item.itemId) {
+            R.id.only_android -> {
+                androidOnlyFilter = !item.isChecked
+                loadItems(searchString, androidOnlyFilter)
+                val sharedPrefs = PreferenceManager.getDefaultSharedPreferences(this)
+                sharedPrefs.edit().run {
+                    putBoolean(LAST_ANDROID_ONLY_FILTER, androidOnlyFilter)
+                    apply()
+                }
+                item.isChecked = androidOnlyFilter
+                return true
+            }
+        }
+        return false
+    }
 }

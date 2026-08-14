@@ -2,10 +2,14 @@ package garden.appl.mitch.install
 
 import android.app.Activity
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
+import android.net.Uri
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.PendingIntentCompat
@@ -166,6 +170,13 @@ object Installations {
                 packageName = tryGetPackageName(context, apk!!.path)!!
         }
 
+        // On a signature conflict the PackageInstaller callback does not report the target
+        // package, but we recorded it while streaming/downloading the APK. Without it the
+        // user can't be told *which* app conflicts and the fix is a dead end.
+        // (mentioned in https://itch.io/t/3102637/error-when-trying-to-install-update)
+        if (status == PackageInstaller.STATUS_FAILURE_CONFLICT && packageName == null)
+            packageName = install.packageName
+
         notifyInstallResult(context, installId, packageName, appName, appIcon, status)
         Mitch.installDownloadManager.deletePendingFile(install.uploadId)
         Mitch.databaseHandler.onInstallResult(install, packageName, status)
@@ -224,6 +235,22 @@ object Installations {
                     setContentTitle(appName)
                 }
 //                priority = NotificationCompat.PRIORITY_HIGH
+            }
+
+            if (status == PackageInstaller.STATUS_FAILURE_CONFLICT && packageName != null) {
+                // Point the user straight at the conflicting app so they can uninstall it
+                // and retry (Android refuses same-package, different-signature installs).
+                val detailsIntent =
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", packageName, null))
+                val detailsPendingIntent = PendingIntentCompat.getActivity(
+                    context, 0, detailsIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE, false)
+                builder.addAction(
+                    0,
+                    context.resources.getString(R.string.notification_install_conflict_action_uninstall),
+                    detailsPendingIntent
+                )
             }
 
         val tag = if (Utils.fitsInInt(installSessionId))

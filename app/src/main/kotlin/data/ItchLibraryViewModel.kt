@@ -13,23 +13,23 @@ import kotlinx.coroutines.flow.map
 
 class ItchLibraryViewModel(private val repository: ItchLibraryRepository) : ViewModel() {
     
-    private lateinit var cachedItemsFlow: Flow<PagingData<ItchLibraryItem>>
+    private var cachedItemsFlow: Flow<PagingData<ItchLibraryItem>>? = null
+    private var cachedAndroidOnly: Boolean? = null
 
     fun getOwnedItems(searchString: String, androidOnly: Boolean) : Flow<PagingData<ItchLibraryUiModel>> {
-        if (!this::cachedItemsFlow.isInitialized)
-            cachedItemsFlow = repository.getLibraryStream().cachedIn(viewModelScope)
-
-        val itemsFlow = if (androidOnly) {
-            cachedItemsFlow.map { pagingData ->
-                pagingData.filter { item -> item.isAndroid }
-            }
-        } else {
-            cachedItemsFlow
-        }.map { pagingData ->
-            pagingData.filter { item -> item.title.contains(searchString, ignoreCase = true) }
+        // The "Only Android" toggle must re-create the paging source so the request
+        // goes out with itch.io's `platform=android` parameter (client-side filtering
+        // can no longer detect Android games reliably).
+        if (cachedItemsFlow == null || cachedAndroidOnly != androidOnly) {
+            cachedAndroidOnly = androidOnly
+            cachedItemsFlow = repository.getLibraryStream(androidOnly).cachedIn(viewModelScope)
         }
+        val itemsFlow = cachedItemsFlow!!
 
         return itemsFlow
+            .map { pagingData ->
+                pagingData.filter { item -> item.title.contains(searchString, ignoreCase = true) }
+            }
             .map { pagingData -> pagingData.map { item -> ItchLibraryUiModel.Item(item) } }
             .map { 
                 it.insertSeparators { before, after ->

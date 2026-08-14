@@ -70,8 +70,11 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
 
         fun getShortcutId(gameId: Int) = "web_game/${gameId}"
 
-        suspend fun makeShortcut(game: Game, context: Context): ShortcutInfoCompat {
+        suspend fun makeShortcut(game: Game, context: Context): ShortcutInfoCompat? {
             val game = tryFixBackwardsCompatGame(game, context, null)
+            val webEntryPoint = game.webEntryPoint
+            if (webEntryPoint == null)
+                return null
             val faviconBitmap = game.faviconUrl?.let { url ->
                 withContext(Dispatchers.IO) {
                     val bitmap = try {
@@ -87,7 +90,7 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
                 }
             }
             Log.d(LOGGING_TAG, "Game: $game")
-            val intent = Intent(Intent.ACTION_VIEW, game.webEntryPoint!!.toUri(),
+            val intent = Intent(Intent.ACTION_VIEW, webEntryPoint.toUri(),
                 context, GameActivity::class.java).apply {
 
                 putExtra(EXTRA_GAME_ID, game.gameId)
@@ -443,11 +446,20 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
             webView.settings.userAgentString)
 
         loadGame(game)
-        val shortcut = makeShortcut(game, this@GameActivity)
-        ShortcutManagerCompat.pushDynamicShortcut(this@GameActivity, shortcut)
+        makeShortcut(game, this@GameActivity)?.let { shortcut ->
+            ShortcutManagerCompat.pushDynamicShortcut(this@GameActivity, shortcut)
+        }
     }
 
     private fun loadGame(game: Game) {
+        val webEntryPoint = game.webEntryPoint
+        if (webEntryPoint == null) {
+            // The game page was removed/delisted, so it has no playable iframe anymore.
+            // Don't crash on a null base URL — tell the user and leave gracefully.
+            Toast.makeText(this, R.string.popup_web_game_not_available, Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
         val html = """<html>
             <head>
                 <style type="text/css">
@@ -473,7 +485,7 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
             </head>
             <body>${game.webIframe}</body>
         </html>""".trimIndent()
-        webView.loadDataWithBaseURL(game.webEntryPoint, html, "text/html", "UTF-8", null)
+        webView.loadDataWithBaseURL(webEntryPoint, html, "text/html", "UTF-8", null)
     }
 
     override fun onPause() {

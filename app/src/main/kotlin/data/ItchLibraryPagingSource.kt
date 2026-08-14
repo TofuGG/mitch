@@ -8,7 +8,7 @@ import garden.appl.mitch.client.ItchLibraryItem
 import garden.appl.mitch.client.ItchLibraryParser
 import java.io.IOException
 
-class ItchLibraryPagingSource : PagingSource<Int, ItchLibraryItem>() {
+class ItchLibraryPagingSource(private val androidOnly: Boolean) : PagingSource<Int, ItchLibraryItem>() {
 
     companion object {
         private const val ITCH_LIBRARY_STARTING_PAGE_INDEX = 1
@@ -20,7 +20,7 @@ class ItchLibraryPagingSource : PagingSource<Int, ItchLibraryItem>() {
         val pageNum = params.key ?: ITCH_LIBRARY_STARTING_PAGE_INDEX
         
         try {
-            val items = ItchLibraryParser.parsePage(pageNum)
+            val items = ItchLibraryParser.parsePage(pageNum, androidOnly)
 
             if (items == null) {
                 Log.d(LOGGING_TAG, "Not logged in")
@@ -34,6 +34,10 @@ class ItchLibraryPagingSource : PagingSource<Int, ItchLibraryItem>() {
             )
         } catch (e: IOException) {
             Log.e(LOGGING_TAG, "Error while loading owned games", e)
+            return LoadResult.Error(e)
+        } catch (e: Exception) {
+            // Never crash the app over a malformed/removed game cell in the owned list.
+            Log.e(LOGGING_TAG, "Error while parsing owned games", e)
             return LoadResult.Error(e)
         }
     }
