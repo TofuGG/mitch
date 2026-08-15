@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -461,6 +462,7 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
             finish()
             return
         }
+        applyGameOrientation(game)
         val html = """<html>
             <head>
                 <style type="text/css">
@@ -491,6 +493,22 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
             <body>${game.webIframe}</body>
         </html>""".trimIndent()
         webView.loadDataWithBaseURL(webEntryPoint, html, "text/html", "UTF-8", null)
+    }
+
+    /**
+     * Rotates the player to the orientation the developer declared for the web game (itch.io
+     * encodes it as the `orientation` query parameter on the embed URL, e.g. landscape_left).
+     * Games without a declared orientation are left untouched so adaptive/portrait games keep
+     * their current behavior. The activity handles configChanges, so rotating does not reload
+     * or restart the running game.
+     */
+    private fun applyGameOrientation(game: Game) {
+        requestedOrientation = when (Utils.parseWebGameOrientation(game.webEntryPoint)) {
+            "landscape", "landscape_left" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            "landscape_right" -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            else -> return
+        }
     }
 
     override fun onPause() {

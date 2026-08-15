@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
@@ -484,12 +485,26 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 //        webView.resumeTimers()
         chromeClient.onResume()
 
+        // Re-apply the dark theme whenever the fragment resumes: changing the app theme in
+        // settings recreates the activity, and WebView.restoreState revives the page without
+        // firing onPageStarted, so the previously injected `dark_theme` class would otherwise
+        // stay behind after switching back to light mode.
+        webView.evaluateJavascript(darkThemeInjectionJs(isAppDarkMode()), null)
+
         // Reflect preference changes (e.g. enabling/disabling the scroll-to-top button
         // or the tag exclusion filter) made while another fragment was visible.
         (activity as? MainActivity)?.binding?.speedDial?.let { speedDial ->
             setupSpeedDialActions(speedDial)
             updateUI()
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+
+        // MainActivity handles uiMode in configChanges, so an OS-level dark/light toggle does
+        // not recreate the activity; re-apply the page theme so it follows the app theme live.
+        webView.evaluateJavascript(darkThemeInjectionJs(isAppDarkMode()), null)
     }
 
     override fun onDestroy() {
@@ -1347,6 +1362,46 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         }
     }
 
+    /**
+     * True when the app is actually rendering in dark mode, mirroring the preference logic in
+     * [Mitch.setThemeFromPreferences]. Used to force itch.io's own dark theme ("Use a dark theme
+     * where available") in the browse WebView even when not logged in.
+     */
+    private fun isAppDarkMode(): Boolean {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        return when (prefs.getString("preference_theme", "site")) {
+            "dark" -> true
+            "light" -> false
+            "system" -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                    Configuration.UI_MODE_NIGHT_YES
+            else -> prefs.getString("current_site_theme", null) == "dark"
+        }
+    }
+
+    /**
+     * JS that pins the browse page's theme to the app's effective dark mode by toggling itch.io's
+     * own `dark_theme` body class ("Use a dark theme where available"). Custom-themed pages
+     * (game/profile/jam) keep their own colors when dark, mirroring
+     * [ItchWebsiteUtils.shouldHandleDayNightThemes]. Applied on every page load and re-applied on
+     * resume, so switching the app theme in settings is reflected without reloading the page.
+     */
+    private fun darkThemeInjectionJs(active: Boolean): String = """
+        (function() {
+            var body = document.body;
+            if (!body)
+                return;
+            if ($active) {
+                if (!document.getElementById("game_theme")
+                    && !document.getElementById("user_theme")
+                    && !document.querySelector("[data-page_name='view_jam']")) {
+                    body.classList.add("dark_theme");
+                }
+            } else {
+                body.classList.remove("dark_theme");
+            }
+        })();
+    """
+
     inner class MitchBrowserWebViewClient(
         private val browseFragment: BrowseFragment
     ) : MitchWebViewClient() {
@@ -1367,8 +1422,10 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
                 ".purchase_banner, .header_buy_row, .buy_row, .donate_btn"
             else
                 ".purchase_banner, .header_buy_row, .buy_row, .donate_btn, .embed_wrapper, .load_iframe_btn"
+            val darkThemeActive = isAppDarkMode()
             view.evaluateJavascript("""
                 document.addEventListener("DOMContentLoaded", (event) => {
+                    ${darkThemeInjectionJs(darkThemeActive)}
                     // tell Android that the document is ready
                     mitchCustomJS.onHtmlLoaded("<html>" + document.getElementsByTagName("html")[0].innerHTML + "</html>",
                                                window.location.href, 

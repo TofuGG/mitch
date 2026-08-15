@@ -418,4 +418,48 @@ object Utils {
             URLUtil.guessFileName(url, contentDisposition, mimeType)
         }
     }
+
+    /**
+     * itch.io HTML5 uploads can declare a fixed screen orientation, which the site encodes as an
+     * `orientation` query parameter on the game's embed URL (stored as [Game.webEntryPoint], e.g.
+     * https://itch.io/embed-upload/123?orientation=landscape_left). The game player uses the
+     * returned value to rotate the screen to match the developer's intent instead of running
+     * landscape-designed games in portrait mode.
+     *
+     * Kept framework-free (no android.net.Uri) so it can be exercised by unit tests.
+     *
+     * @return one of "portrait", "landscape", "landscape_left", "landscape_right",
+     *         or null when the game declares no orientation.
+     */
+    fun parseWebGameOrientation(entryPointUrl: String?): String? {
+        if (entryPointUrl == null)
+            return null
+        return try {
+            val orientation = getQueryParameter(entryPointUrl, "orientation")
+                ?.replace(" ", "_")
+            when (orientation) {
+                "portrait", "landscape", "landscape_left", "landscape_right" -> orientation
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun getQueryParameter(url: String, key: String): String? {
+        val queryStart = url.indexOf('?')
+        if (queryStart < 0 || queryStart == url.length - 1)
+            return null
+        val queryEnd = url.indexOf('#', queryStart + 1)
+        val query = if (queryEnd < 0)
+            url.substring(queryStart + 1)
+        else
+            url.substring(queryStart + 1, queryEnd)
+        for (part in query.split('&')) {
+            if (part.startsWith("$key=")) {
+                return java.net.URLDecoder.decode(part.substring(key.length + 1), "UTF-8")
+            }
+        }
+        return null
+    }
 }

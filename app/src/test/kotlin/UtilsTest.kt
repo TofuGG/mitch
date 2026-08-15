@@ -32,4 +32,33 @@ class UtilsTest : TestCase() {
         assertFalse(Utils.isVersionNewer("2.3.4.0", "2.3.4"))
         assertFalse(Utils.isVersionNewer("1.0.0", "1.0.0.0"))
     }
+
+    fun testParseWebGameOrientation() {
+        // itch.io encodes a declared orientation as a query param on the embed-upload URL.
+        assertEquals("landscape", Utils.parseWebGameOrientation(
+            "https://itch.io/embed-upload/123?orientation=landscape&bg_color=000000"))
+        assertEquals("landscape_left", Utils.parseWebGameOrientation(
+            "https://itch.io/embed-upload/123?orientation=landscape_left&bg_color=000000"))
+        assertEquals("landscape_right", Utils.parseWebGameOrientation(
+            "https://itch.io/embed-upload/123?bg_color=000000&orientation=landscape_right"))
+        assertEquals("portrait", Utils.parseWebGameOrientation(
+            "https://itch.io/embed-upload/123?orientation=portrait"))
+
+        // The site may percent-encode the value (a space instead of an underscore).
+        assertEquals("landscape_left", Utils.parseWebGameOrientation(
+            "https://itch.io/embed-upload/123?orientation=landscape%20left"))
+        assertEquals("landscape_right", Utils.parseWebGameOrientation(
+            "https://itch.io/embed-upload/123?orientation=landscape+right"))
+
+        // No declared orientation / unknown values / no query string.
+        assertNull(Utils.parseWebGameOrientation(
+            "https://html-classic.itch.zone/html/123/index.html"))
+        assertNull(Utils.parseWebGameOrientation(
+            "https://itch.io/embed-upload/123"))
+        assertNull(Utils.parseWebGameOrientation(
+            "https://itch.io/embed-upload/123?bg_color=000000"))
+        assertNull(Utils.parseWebGameOrientation(
+            "https://itch.io/embed-upload/123?orientation=sideways"))
+        assertNull(Utils.parseWebGameOrientation(null))
+    }
 }
