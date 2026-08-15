@@ -34,7 +34,7 @@
             android:networkSecurityConfig="@xml/network_security_config"
             android:roundIcon="@mipmap/ic_launcher_round"
             android:manageSpaceActivity="garden.appl.mitch.ui.MainActivity$LibraryActivity"
-            android:name=".Mitch"
+            android:name="garden.appl.mitch.Mitch"
             android:supportsRtl="true"
             android:theme="@style/AppTheme"
             android:hardwareAccelerated="true">
@@ -46,7 +46,7 @@
 
 
         <activity
-                android:name=".ui.MainActivity"
+                android:name="garden.appl.mitch.ui.MainActivity"
                 android:exported="true"
                 android:theme="@style/SplashScreenTheme"
                 android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode" >
@@ -69,7 +69,7 @@
             </intent-filter>
         </activity>
         <activity
-                android:name=".ui.OwnedGamesActivity"
+                android:name="garden.appl.mitch.ui.OwnedGamesActivity"
                 android:theme="@style/AppTheme.NoActionBar"
                 android:exported="true"
                 android:label="@string/library_category_owned">
@@ -87,28 +87,28 @@
             </intent-filter>
         </activity>
         <activity
-                android:name=".ui.CrashDialog"
+                android:name="garden.appl.mitch.ui.CrashDialog"
                 android:process=":acra"
                 android:theme="@style/DialogStyle"
                 android:excludeFromRecents="true"
                 android:finishOnTaskLaunch="true"
                 android:launchMode="singleInstance"/>
         <activity
-                android:name=".install.NativeInstallerActivity"
+                android:name="garden.appl.mitch.install.NativeInstallerActivity"
                 android:exported="false"
                 android:theme="@style/DialogStyle"
                 android:excludeFromRecents="true"
                 android:finishOnTaskLaunch="true"
                 android:launchMode="singleInstance"/>
         <activity
-                android:name=".ui.GameActivity"
+                android:name="garden.appl.mitch.ui.GameActivity"
                 android:launchMode="singleTask"
                 android:taskAffinity="garden.appl.mitch.webgame"
                 android:theme="@style/AppTheme.Fullscreen"
                 android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode"/>
         <activity
                 android:exported="true"
-                android:name=".ui.MainActivity$LibraryActivity"
+                android:name="garden.appl.mitch.ui.MainActivity$LibraryActivity"
                 android:theme="@style/SplashScreenTheme" />
         <!-- https://github.com/mikepenz/AboutLibraries/issues/279#issuecomment-607556127 -->
         <activity
@@ -116,19 +116,19 @@
                 android:theme="@style/AppTheme.AboutLibraries" />
 
         <receiver
-                android:name=".install.InstallRequestBroadcastReceiver"
+                android:name="garden.appl.mitch.install.InstallRequestBroadcastReceiver"
                 android:exported="false" />
         <receiver
-                android:name=".files.DownloadCancelBroadcastReceiver"
+                android:name="garden.appl.mitch.files.DownloadCancelBroadcastReceiver"
                 android:exported="false" />
         <receiver
-                android:name=".client.UpdateNotificationBroadcastReceiver"
+                android:name="garden.appl.mitch.client.UpdateNotificationBroadcastReceiver"
                 android:exported="false" />
         <receiver
-                android:name=".ErrorReportBroadcastReceiver"
+                android:name="garden.appl.mitch.ErrorReportBroadcastReceiver"
                 android:exported="false" />
         <receiver
-                android:name=".install.UninstallBroadcastReceiver"
+                android:name="garden.appl.mitch.install.UninstallBroadcastReceiver"
                 android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.PACKAGE_FULLY_REMOVED" />
@@ -136,7 +136,7 @@
             </intent-filter>
         </receiver>
         <receiver
-                android:name=".install.SelfUpdateBroadcastReceiver"
+                android:name="garden.appl.mitch.install.SelfUpdateBroadcastReceiver"
                 android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
@@ -144,7 +144,7 @@
         </receiver>
         <service
                 android:foregroundServiceType="shortService"
-                android:name=".install.SessionInstallerService" />
+                android:name="garden.appl.mitch.install.SessionInstallerService" />
         <provider
                 android:name="androidx.core.content.FileProvider"
                 android:authorities="${applicationId}.fileprovider"
@@ -156,7 +156,7 @@
         </provider>
         <service
                 android:foregroundServiceType="mediaPlayback"
-                android:name=".ui.GameForegroundService" />
+                android:name="garden.appl.mitch.ui.GameForegroundService" />
     </application>
     <!-- Required for 'Open in default web browser' function -->
     <!-- https://stackoverflow.com/questions/2201917/how-can-i-open-a-url-in-androids-web-browser-from-my-application#61488105 -->
