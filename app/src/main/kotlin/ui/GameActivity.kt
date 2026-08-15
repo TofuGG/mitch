@@ -37,6 +37,7 @@ import androidx.preference.PreferenceManager
 import com.bumptech.glide.Glide
 import garden.appl.mitch.ItchWebsiteUtils
 import garden.appl.mitch.Mitch
+import garden.appl.mitch.PREF_TEXT_GAME_FILL
 import garden.appl.mitch.PREF_WEB_CACHE_ENABLE
 import garden.appl.mitch.PREF_WEB_CACHE_UPDATE
 import garden.appl.mitch.PreferenceWebCacheEnable
@@ -463,6 +464,15 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
             return
         }
         applyGameOrientation(game)
+        // itch.io's embed iframe carries an inline pixel height, so text games (Twine &
+        // friends) would otherwise render as a tiny strip instead of filling the player.
+        // Overridable in settings to restore the default embed sizing.
+        // (mentioned in https://itch.io/t/2393827/cant-play-text-based-games)
+        val iframeHeightRule = if (PreferenceManager.getDefaultSharedPreferences(this)
+                .getBoolean(PREF_TEXT_GAME_FILL, true))
+            "height: 100% !important;"
+        else
+            "height: 100%;"
         val html = """<html>
             <head>
                 <style type="text/css">
@@ -480,10 +490,7 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
                     iframe {
                         display: block; 
                         width: 100%; 
-                        /* itch.io's embed iframe carries an inline pixel height, so text
-                           games (Twine & friends) would otherwise render as a tiny strip
-                           instead of filling the player. Override it. */
-                        height: 100% !important;
+                        $iframeHeightRule
                         border: none; 
                         overflow-y: auto; 
                         overflow-x: hidden;

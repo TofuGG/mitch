@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.edit
 import androidx.preference.PreferenceManager
@@ -20,6 +21,7 @@ import garden.appl.mitch.client.UpdateChecker
 import garden.appl.mitch.database.DatabaseCleanup
 import garden.appl.mitch.files.ExternalFileManager
 import garden.appl.mitch.files.WebGameCache
+import garden.appl.mitch.files.WebViewDataBackup
 import garden.appl.mitch.install.InstallationDatabaseManager
 import garden.appl.mitch.install.InstallationDownloadManager
 import garden.appl.mitch.ui.CrashDialog
@@ -108,6 +110,21 @@ const val PREF_SCROLL_TO_TOP_ENABLED = "mitch.scroll_to_top_enabled"
 
 const val PREF_DEBUG_WEB_GAMES_IN_BROWSE_TAB = "mitch.debug.web_games_in_browse"
 
+// Render itch.io with a desktop user agent when enabled.
+// (mentioned in https://itch.io/t/6622118/any-way-to-export-in-app-browser-data-or-put-in-app-browser-into-desktop-mode)
+const val PREF_DESKTOP_MODE = "mitch.browse_desktop_mode"
+
+// Feature toggles. Defaults are on so existing behaviour is preserved unless the user opts out.
+const val PREF_SEARCH_ENABLED = "mitch.search_enabled"
+const val PREF_GENRE_EXCLUSION_ENABLED = "mitch.genre_exclusion_enabled"
+const val PREF_TEXT_GAME_FILL = "mitch.text_game_fill"
+
+// Browser-data export/import. The import is deferred to the next app launch so the swap
+// happens before any WebView is created (see WebViewDataBackup).
+const val PREF_BROWSER_DATA_EXPORT = "mitch.export_browser_data"
+const val PREF_BROWSER_DATA_IMPORT = "mitch.import_browser_data"
+const val PREF_PENDING_BROWSER_DATA_IMPORT = "mitch.pending_browser_data_import"
+
 
 
 class Mitch : Application() {
@@ -188,7 +205,7 @@ class Mitch : Application() {
                 PREF_UPDATE_CHECK_ENABLED -> {
                     if (prefs.getBoolean(key, true)) {
                         registerUpdateCheckTask(
-                            prefs.getBoolean("preference_update_check_if_metered", true),
+                            prefs.getBoolean("preference_update_check_if_metered", false),
                             ExistingPeriodicWorkPolicy.UPDATE)
                     } else {
                         WorkManager.getInstance(applicationContext)
@@ -257,6 +274,8 @@ class Mitch : Application() {
             sharedPreferences.getString(PREF_LANG_LOCALE, "")!!)
         Mitch.cacheDir = cacheDir
 
+        applyPendingBrowserDataImport()
+
 
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -301,7 +320,7 @@ class Mitch : Application() {
             notificationManager.createNotificationChannel(channel)
         }
 
-        val workOnMetered = sharedPreferences.getBoolean("preference_update_check_if_metered", true)
+        val workOnMetered = sharedPreferences.getBoolean("preference_update_check_if_metered", false)
         if (sharedPreferences.getBoolean(PREF_UPDATE_CHECK_ENABLED, true))
             registerUpdateCheckTask(!workOnMetered, ExistingPeriodicWorkPolicy.KEEP)
 
@@ -315,6 +334,26 @@ class Mitch : Application() {
 
         // Restore session cookies (itch.io/GitHub login) that don't survive a reboot
         SessionCookieStore.restore(this)
+    }
+
+    /**
+     * If the user chose "Import browser data" in the settings, replace the WebView data
+     * directory with the contents of the exported zip. Runs at app startup, before any
+     * WebView is created, so the swap cannot corrupt live storage.
+     * (mentioned in https://itch.io/t/4677526/import-saves-how)
+     */
+    private fun applyPendingBrowserDataImport() {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        if (!prefs.getBoolean(PREF_PENDING_BROWSER_DATA_IMPORT, false))
+            return
+        prefs.edit { remove(PREF_PENDING_BROWSER_DATA_IMPORT) }
+
+        val pendingZip = File(filesDir, WebViewDataBackup.PENDING_BROWSER_DATA_ZIP)
+        if (pendingZip.exists()) {
+            val ok = WebViewDataBackup.importData(this, pendingZip)
+            Log.i(LOGGING_TAG, "Applied pending browser data import: $ok")
+        }
+        pendingZip.delete()
     }
 
     private fun registerUpdateCheckTask(

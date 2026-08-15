@@ -25,6 +25,7 @@ import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -54,7 +55,10 @@ import garden.appl.mitch.PREF_BROWSE_GENRES_FILTER
 import garden.appl.mitch.PREF_BROWSE_LAST_URL
 import garden.appl.mitch.PREF_BROWSE_TAGS_FILTER
 import garden.appl.mitch.PREF_DEBUG_WEB_GAMES_IN_BROWSE_TAB
+import garden.appl.mitch.PREF_DESKTOP_MODE
+import garden.appl.mitch.PREF_GENRE_EXCLUSION_ENABLED
 import garden.appl.mitch.PREF_SCROLL_TO_TOP_ENABLED
+import garden.appl.mitch.PREF_SEARCH_ENABLED
 import garden.appl.mitch.PREF_TAG_EXCLUSION_ENABLED
 import garden.appl.mitch.PREF_UPDATE_TRACKING_ENABLED
 import garden.appl.mitch.PREF_WARN_WRONG_OS
@@ -92,6 +96,11 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         private const val APP_BAR_ACTIONS_DEFAULT = 1
         private const val APP_BAR_ACTIONS_FROM_HTML = 2
         private const val APP_BAR_ACTIONS_GAME_JAM = 3
+
+        // Desktop-mode rendering for the in-app browser.
+        // (mentioned in https://itch.io/t/6622118/any-way-to-export-in-app-browser-data-or-put-in-app-browser-into-desktop-mode)
+        private const val DESKTOP_USER_AGENT =
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
     }
     
     private var _binding: BrowseFragmentBinding? = null
@@ -190,6 +199,8 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         if (Build.VERSION.SDK_INT > Build.VERSION_CODES.JELLY_BEAN)
             webView.addJavascriptInterface(MitchJavaScriptInterface(this), "mitchCustomJS")
 
+        applyDesktopModeUserAgent()
+
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
             Log.d(LOGGING_TAG, "Requesting download...")
             launch(Dispatchers.IO) {
@@ -260,48 +271,7 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
                     return@setOnActionSelectedListener true
                 }
                 R.id.browser_search -> {
-                    // Search dialog
-
-                    val viewInflated: View = LayoutInflater.from(context)
-                        .inflate(R.layout.dialog_search, getView() as ViewGroup?, false)
-
-                    val input = viewInflated.findViewById<TextInputEditText>(R.id.input)
-
-                    val alertDialog = AlertDialog.Builder(requireContext())
-                        .setTitle(R.string.browser_search)
-                        .setView(viewInflated)
-                        .setPositiveButton(android.R.string.ok) { dialog, _ ->
-                            dialog.dismiss()
-                            loadUrl(ItchWebsiteUtils.getSearchUrl(input.text.toString()))
-                        }
-                        .setNegativeButton(android.R.string.cancel) { dialog, _ ->
-                            dialog.cancel()
-                        }
-                        .show()
-
-                    // Show keyboard automatically
-                    input.post {
-                        input.isFocusableInTouchMode = true
-                        input.requestFocus()
-
-                        input.postDelayed({
-                            val inputMethodManager =
-                                requireContext().getSystemService(Context.INPUT_METHOD_SERVICE)
-                                        as InputMethodManager
-                            inputMethodManager.showSoftInput(input,
-                                InputMethodManager.SHOW_IMPLICIT)
-                        }, 300)
-                    }
-
-                    input.setOnEditorActionListener { _, actionId, _ ->
-                        if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                            alertDialog.dismiss()
-                            loadUrl(ItchWebsiteUtils.getSearchUrl(input.text.toString()))
-                            return@setOnEditorActionListener true
-                        }
-                        false
-                    }
-
+                    showSearchDialog()
                     return@setOnActionSelectedListener true
                 }
                 R.id.browser_scroll_to_top -> {
@@ -598,10 +568,17 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 
         updateFiltersAndAction(speedDial)
         // Exclusion filters only make sense on catalogue pages; since they are now kept
-        // across navigation, don't run their JS elsewhere.
+        // across navigation, don't run their JS elsewhere. Each filter also respects its
+        // settings toggle so a disabled filter stops hiding games even if a set was saved.
         if (url?.let { ItchWebsiteUtils.isGameCataloguePage(Uri.parse(it)) } == true) {
-            filterExcludedGenres()
-            filterExcludedTags()
+            if (PreferenceManager.getDefaultSharedPreferences(requireContext())
+                    .getBoolean(PREF_GENRE_EXCLUSION_ENABLED, true)) {
+                filterExcludedGenres()
+            }
+            if (PreferenceManager.getDefaultSharedPreferences(requireContext())
+                    .getBoolean(PREF_TAG_EXCLUSION_ENABLED, true)) {
+                filterExcludedTags()
+            }
         }
 
         if (doc?.let { ItchWebsiteUtils.isGamePage(doc) } == true) {
@@ -862,11 +839,13 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
             .setLabel(R.string.browser_reload)
             .create()
         )
-        speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_search, R.drawable.ic_baseline_search_24)
-            .setLabel(R.string.browser_search)
-            .create()
-        )
         val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        if (prefs.getBoolean(PREF_SEARCH_ENABLED, true)) {
+            speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_search, R.drawable.ic_baseline_search_24)
+                .setLabel(R.string.browser_search)
+                .create()
+            )
+        }
         if (prefs.getBoolean(PREF_SCROLL_TO_TOP_ENABLED, true)) {
             speedDial.addActionItem(SpeedDialActionItem.Builder(
                 R.id.browser_scroll_to_top, R.drawable.ic_baseline_keyboard_arrow_up_24)
@@ -900,14 +879,16 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
             // the FAB menu accumulates one duplicate filter button per UI update.
             while (speedDial.removeActionItemById(R.id.browser_filter_exclude_genres) != null) { }
             while (speedDial.removeActionItemById(R.id.browser_filter_exclude_tags) != null) { }
-            speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_filter_exclude_genres, R.drawable.ic_baseline_filter_alt_24).run {
-                if (genreExcludeSet.isEmpty())
-                    setLabel(R.string.browser_filter_exclude_genres)
-                else
-                    setLabel(resources.getQuantityString(R.plurals.browser_filter_exclude_genres_active,
-                        genreExcludeSet.size, genreExcludeSet.size))
-                create()
-            })
+            if (prefs.getBoolean(PREF_GENRE_EXCLUSION_ENABLED, true)) {
+                speedDial.addActionItem(SpeedDialActionItem.Builder(R.id.browser_filter_exclude_genres, R.drawable.ic_baseline_filter_alt_24).run {
+                    if (genreExcludeSet.isEmpty())
+                        setLabel(R.string.browser_filter_exclude_genres)
+                    else
+                        setLabel(resources.getQuantityString(R.plurals.browser_filter_exclude_genres_active,
+                            genreExcludeSet.size, genreExcludeSet.size))
+                    create()
+                })
+            }
 
             if (prefs.getBoolean(PREF_TAG_EXCLUSION_ENABLED, true)) {
                 val tagExcludeCount = tagsExclusionFilter?.size ?: 0
@@ -1200,6 +1181,88 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         appBar.menu.add(APP_BAR_ACTIONS_DEFAULT, 13, 13, R.string.nav_settings).setOnMenuItemClickListener {
             (activity as MainActivity).setActiveFragment(MainActivity.SETTINGS_FRAGMENT_TAG)
             true
+        }
+        // Search by game name; also available from the speed dial, but many users never find it.
+        // (mentioned in https://itch.io/t/6524479/searching-a-specific-game-in-mitch)
+        if (PreferenceManager.getDefaultSharedPreferences(requireContext())
+                .getBoolean(PREF_SEARCH_ENABLED, true)) {
+            appBar.menu.add(APP_BAR_ACTIONS_DEFAULT, 14, 14, R.string.browser_search).setOnMenuItemClickListener {
+                showSearchDialog()
+                true
+            }
+        }
+        // Toggle desktop rendering of the current page.
+        // (mentioned in https://itch.io/t/6622118/any-way-to-export-in-app-browser-data-or-put-in-app-browser-into-desktop-mode)
+        appBar.menu.add(APP_BAR_ACTIONS_DEFAULT, 15, 15, R.string.menu_desktop_site).run {
+            isCheckable = true
+            isChecked = PreferenceManager.getDefaultSharedPreferences(requireContext())
+                .getBoolean(PREF_DESKTOP_MODE, false)
+            setOnMenuItemClickListener {
+                toggleDesktopMode()
+                true
+            }
+        }
+    }
+
+    private fun applyDesktopModeUserAgent() {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        webView.settings.userAgentString = if (prefs.getBoolean(PREF_DESKTOP_MODE, false))
+            DESKTOP_USER_AGENT
+        else
+            WebSettings.getDefaultUserAgent(requireContext())
+    }
+
+    private fun toggleDesktopMode() {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        val enabled = !prefs.getBoolean(PREF_DESKTOP_MODE, false)
+        prefs.edit().putBoolean(PREF_DESKTOP_MODE, enabled).apply()
+        webView.settings.userAgentString = if (enabled)
+            DESKTOP_USER_AGENT
+        else
+            WebSettings.getDefaultUserAgent(requireContext())
+        webView.reload()
+        Utils.logDebug(LOGGING_TAG, "Desktop mode: $enabled")
+    }
+
+    private fun showSearchDialog() {
+        val viewInflated: View = LayoutInflater.from(requireContext())
+            .inflate(R.layout.dialog_search, getView() as ViewGroup?, false)
+
+        val input = viewInflated.findViewById<TextInputEditText>(R.id.input)
+
+        val alertDialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.browser_search)
+            .setView(viewInflated)
+            .setPositiveButton(android.R.string.ok) { dialog, _ ->
+                dialog.dismiss()
+                loadUrl(ItchWebsiteUtils.getSearchUrl(input.text.toString()))
+            }
+            .setNegativeButton(android.R.string.cancel) { dialog, _ ->
+                dialog.cancel()
+            }
+            .show()
+
+        // Show keyboard automatically
+        input.post {
+            input.isFocusableInTouchMode = true
+            input.requestFocus()
+
+            input.postDelayed({
+                val inputMethodManager =
+                    requireContext().getSystemService(Context.INPUT_METHOD_SERVICE)
+                            as InputMethodManager
+                inputMethodManager.showSoftInput(input,
+                    InputMethodManager.SHOW_IMPLICIT)
+            }, 300)
+        }
+
+        input.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                alertDialog.dismiss()
+                loadUrl(ItchWebsiteUtils.getSearchUrl(input.text.toString()))
+                return@setOnEditorActionListener true
+            }
+            false
         }
     }
 

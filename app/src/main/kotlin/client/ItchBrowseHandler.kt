@@ -11,6 +11,8 @@ import garden.appl.mitch.ItchWebsiteUtils
 import garden.appl.mitch.Mitch
 import garden.appl.mitch.PREF_LANG_SITE_LOCALE
 import garden.appl.mitch.PREF_WARN_WRONG_OS
+import garden.appl.mitch.Utils
+import garden.appl.mitch.files.Downloader
 import tofu.gg.mitchy.R
 import garden.appl.mitch.data.SpecialBundle
 import garden.appl.mitch.data.containsGame
@@ -22,6 +24,7 @@ import garden.appl.mitch.ui.MitchActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jsoup.nodes.Document
 
 class ItchBrowseHandler(private val context: MitchActivity, private val scope: CoroutineScope) {
@@ -178,6 +181,18 @@ class ItchBrowseHandler(private val context: MitchActivity, private val scope: C
         val mimeType = currentDownloadMimeType
         val contentLength = currentDownloadContentLength
 
+        if (uploadId == null) {
+            // Not an itch.io game upload: the URL isn't a creator.itch.io/.../file/N link and
+            // no download button click was intercepted. Treat it as a plain file download
+            // instead of waiting forever for an upload id that will never arrive.
+            // (mentioned in https://todo.sr.ht/~gardenapple/mitch/5)
+            if (downloadUrl == null)
+                return
+            startDirectFileDownload(downloadUrl, userAgent, contentDisposition, mimeType,
+                contentLength)
+            return
+        }
+
         // contentLength is intentionally NOT required: itch.io often serves files without a
         // Content-Length (chunked/redirected downloads), and waiting for it would make the
         // download never start. The downloader handles unknown lengths fine.
@@ -229,6 +244,49 @@ class ItchBrowseHandler(private val context: MitchActivity, private val scope: C
         } catch (e: Exception) {
             Log.e(LOGGING_TAG, "Could not start download", e)
             showDownloadError(R.string.popup_download_error)
+        }
+    }
+
+    /**
+     * Download a file that is not an itch.io game upload (e.g. a mirror hosted elsewhere,
+     * or a file linked from a devlog post). Mirrors the game player's download handling:
+     * the file lands in the Downloads folder with a sensible name.
+     * https://todo.sr.ht/~gardenapple/mitch/5
+     */
+    private suspend fun startDirectFileDownload(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        mimeType: String?,
+        contentLength: Long?
+    ) {
+        clickedUploadId = null
+        currentDownloadUrl = null
+        currentUserAgent = null
+        currentDownloadContentDisposition = null
+        currentDownloadMimeType = null
+        currentDownloadContentLength = null
+
+        val fileName = Utils.guessFileName(url, contentDisposition, mimeType)
+        scope.launch(Dispatchers.Main) {
+            context.requestNotificationPermission(
+                scope,
+                R.string.dialog_notification_explain_download,
+                R.string.dialog_notification_cancel_download
+            )
+            Toast.makeText(context, R.string.popup_download_started, Toast.LENGTH_LONG)
+                .show()
+            withContext(Dispatchers.IO) {
+                Downloader.requestDownload(
+                    context, url, userAgent,
+                    install = null,
+                    fileName = fileName,
+                    contentLength = contentLength,
+                    downloadDir = null,
+                    tempDownloadDir = true,
+                    installer = null
+                )
+            }
         }
     }
 

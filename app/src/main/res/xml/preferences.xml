@@ -28,6 +28,26 @@
                 android:key="mitch.scroll_to_top_enabled"
                 android:summary="@string/settings_scroll_to_top_enabled_desc"
                 android:title="@string/settings_scroll_to_top_enabled" />
+        <SwitchPreference
+                android:defaultValue="true"
+                android:key="mitch.search_enabled"
+                android:summary="@string/settings_search_enabled_desc"
+                android:title="@string/settings_search_enabled" />
+        <SwitchPreference
+                android:defaultValue="false"
+                android:key="mitch.browse_desktop_mode"
+                android:summary="@string/settings_desktop_mode_desc"
+                android:title="@string/settings_desktop_mode" />
+        <SwitchPreference
+                android:defaultValue="true"
+                android:key="mitch.genre_exclusion_enabled"
+                android:summary="@string/settings_genre_exclusion_enabled_desc"
+                android:title="@string/settings_genre_exclusion_enabled" />
+        <SwitchPreference
+                android:defaultValue="true"
+                android:key="mitch.text_game_fill"
+                android:summary="@string/settings_text_game_fill_desc"
+                android:title="@string/settings_text_game_fill" />
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/settings_category_updater">
         <SwitchPreference
@@ -45,7 +65,7 @@
                 android:key="mitch.warn_wrong_os"
                 android:title="@string/settings_warn_os" />
         <SwitchPreference
-                android:defaultValue="true"
+                android:defaultValue="false"
                 android:key="preference_update_check_if_metered"
                 android:summary="@string/settings_update_check_metered_desc"
                 android:title="@string/settings_update_check_metered" />
@@ -99,6 +119,14 @@
         <Preference
                 android:key="mitch.clear_all_data"
                 android:title="@string/settings_clear_all" />
+        <Preference
+                android:key="mitch.export_browser_data"
+                android:summary="@string/settings_export_browser_data_desc"
+                android:title="@string/settings_export_browser_data" />
+        <Preference
+                android:key="mitch.import_browser_data"
+                android:summary="@string/settings_import_browser_data_desc"
+                android:title="@string/settings_import_browser_data" />
         <SwitchPreference
                 android:defaultValue="false"
                 android:key="mitch.debug.web_games_in_browse"

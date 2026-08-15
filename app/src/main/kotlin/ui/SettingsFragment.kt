@@ -9,6 +9,8 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.ArrayAdapter
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.edit
 import androidx.core.widget.addTextChangedListener
@@ -17,8 +19,12 @@ import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.get
 import com.mikepenz.aboutlibraries.LibsBuilder
 import tofu.gg.mitchy.BuildConfig
+import garden.appl.mitch.Mitch
+import garden.appl.mitch.PREF_BROWSER_DATA_EXPORT
+import garden.appl.mitch.PREF_BROWSER_DATA_IMPORT
 import garden.appl.mitch.PREF_BROWSE_START_PAGE
 import garden.appl.mitch.PREF_DEBUG_WEB_GAMES_IN_BROWSE_TAB
+import garden.appl.mitch.PREF_PENDING_BROWSER_DATA_IMPORT
 import garden.appl.mitch.PREF_START_PAGE_EXCLUDE
 import garden.appl.mitch.PREF_START_PAGE_EXCLUDE_DISPLAY_STRING
 import garden.appl.mitch.PREF_WEB_CACHE_ENABLE
@@ -31,16 +37,49 @@ import garden.appl.mitch.database.DatabaseCleanup
 import garden.appl.mitch.database.installation.Installation
 import tofu.gg.mitchy.databinding.DialogTagSelectBinding
 import garden.appl.mitch.files.Downloader
+import garden.appl.mitch.files.WebViewDataBackup
 import garden.appl.mitch.install.Installations
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import java.io.File
 
 class SettingsFragment : PreferenceFragmentCompat(), CoroutineScope by MainScope() {
     companion object {
         private const val LOGGING_TAG = "SettingsFrag"
+    }
+
+    private val browserDataImportLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null)
+            return@registerForActivityResult
+        val context = requireContext()
+        launch(Dispatchers.IO) {
+            val dest = File(context.filesDir, WebViewDataBackup.PENDING_BROWSER_DATA_ZIP)
+            val copied = runCatching {
+                dest.outputStream().use { out ->
+                    context.contentResolver.openInputStream(uri)?.use { it.copyTo(out) }
+                }
+            }.isSuccess && dest.length() > 0
+            if (!copied)
+                dest.delete()
+            withContext(Dispatchers.Main) {
+                if (copied) {
+                    preferenceManager.sharedPreferences!!.edit(commit = true) {
+                        putBoolean(PREF_PENDING_BROWSER_DATA_IMPORT, true)
+                    }
+                    Toast.makeText(context, R.string.settings_browser_data_import_scheduled,
+                        Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, R.string.settings_browser_data_import_failed,
+                        Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
 
@@ -164,6 +203,37 @@ class SettingsFragment : PreferenceFragmentCompat(), CoroutineScope by MainScope
                 create()
             }
             dialog.show()
+            return true
+        } else if (preference.key == PREF_BROWSER_DATA_EXPORT) {
+            val context = requireContext()
+            launch(Dispatchers.IO) {
+                val destZip = File(context.cacheDir, WebViewDataBackup.EXPORT_ZIP_NAME)
+                destZip.delete()
+                val exported = WebViewDataBackup.exportData(context, destZip)
+                val (uri, displayName) = if (exported)
+                    Mitch.externalFileManager.doMoveToDownloads(context, destZip)
+                else
+                    Pair(null, null)
+                destZip.delete()
+                withContext(Dispatchers.Main) {
+                    if (uri == null) {
+                        Toast.makeText(context, R.string.settings_browser_data_export_failed,
+                            Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context,
+                            getString(R.string.settings_browser_data_exported,
+                                displayName ?: WebViewDataBackup.EXPORT_ZIP_NAME),
+                            Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            return true
+        } else if (preference.key == PREF_BROWSER_DATA_IMPORT) {
+            browserDataImportLauncher.launch(arrayOf(
+                "application/zip",
+                "application/octet-stream",
+                "application/x-zip-compressed"
+            ))
             return true
         } else if (preference.key == "mitch.about_libraries") {
             LibsBuilder()
