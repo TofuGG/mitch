@@ -63,11 +63,12 @@ android {
         val releaseVersionName = (project.findProperty("versionName") as? String) ?: "2.3.3"
         versionName = releaseVersionName
         // Derive a monotonic version code from the version name, e.g. "2.3.4" -> 20304, so
-        // version bumps stay installable as upgrades. Falls back to the default code when the
+        // version bumps stay installable as upgrades. Pre-release suffixes are ignored
+        // ("2.3.8-beta" -> 20308). Falls back to the default code when the
         // name isn't a <major>.<minor>.<patch> number.
         versionCode = run {
             val parts = releaseVersionName.trimStart('v').split('.').take(3)
-            val numbers = parts.map { it.toIntOrNull() }
+            val numbers = parts.map { it.substringBefore('-').toIntOrNull() }
             if (numbers.size == 3 && numbers.all { it != null })
                 numbers[0]!! * 10000 + numbers[1]!! * 100 + numbers[2]!!
             else
