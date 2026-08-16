@@ -1,12 +1,17 @@
 package garden.appl.mitch.files
 
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.os.StatFs
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.work.BackoffPolicy
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -14,6 +19,7 @@ import androidx.work.await
 import androidx.work.workDataOf
 import garden.appl.mitch.HEADER_UA
 import garden.appl.mitch.Mitch
+import garden.appl.mitch.NOTIFICATION_CHANNEL_ID_INSTALLING
 import garden.appl.mitch.NOTIFICATION_TAG_DOWNLOAD
 import garden.appl.mitch.NOTIFICATION_TAG_DOWNLOAD_LONG
 import tofu.gg.mitchy.R
@@ -29,6 +35,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
@@ -39,6 +47,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.OutputStream
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -51,6 +60,7 @@ object Downloader {
     private const val WORKER_UPLOAD_ID = "upload_id"
     private const val WORKER_CONTENT_LENGTH = "content_length"
     private const val TAG_WORKER = "MITCH_DOWN"
+    private const val MAX_RETRY_ATTEMPTS = 20
 
     private const val LOGGING_TAG = "WorkerDownloader"
     private val installationListener = InstallationDownloadFileListener()
@@ -66,17 +76,20 @@ object Downloader {
     fun getNormalDownloadPath(context: Context, downloadId: Long) =
         File(File(context.filesDir, "misc_download"), downloadId.toString())
 
-    @Synchronized
-    private fun getUnusedDownloadId(context: Context): Long {
-        for (i in Int.MAX_VALUE.toLong() + 1..Int.MAX_VALUE.toLong() * 2) {
-            val workInfos =
-                WorkManager.getInstance(context).getWorkInfosForUniqueWork(getWorkName(i))
-                    .get()
-            if (workInfos.isEmpty())
-                return i
+    private val unusedDownloadIdMutex = Mutex()
+
+    private suspend fun getUnusedDownloadId(context: Context): Long =
+        unusedDownloadIdMutex.withLock {
+            for (i in Int.MAX_VALUE.toLong() + 1..Int.MAX_VALUE.toLong() * 2) {
+                // Use the flow API instead of the ListenableFuture .get(): the player's download
+                // path runs on the main scope, and blocking on a WorkManager future there would ANR.
+                val workInfos = WorkManager.getInstance(context)
+                    .getWorkInfosForUniqueWorkFlow(getWorkName(i)).first()
+                if (workInfos.isEmpty())
+                    return@withLock i
+            }
+            throw RuntimeException("Could not find free download ID for DownloaderWorker")
         }
-        throw RuntimeException("Could not find free download ID for DownloaderWorker")
-    }
 
     private fun getWorkName(downloadId: Long): String = "MITCH_DOWN_$downloadId"
 
@@ -129,6 +142,12 @@ object Downloader {
                     )
                 )
                 addTag(TAG_WORKER)
+                // Run as foreground/expedited work so the OS does not stop the download when
+                // the user switches to another app (STOP_REASON_ESTIMATED_APP_BG). If it still
+                // gets stopped (10-minute background cap, OEM battery savers), doWork retries
+                // instead of failing. https://itch.io/t/5280860/app-doesnt-install-games
+                setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                setBackoffCriteria(BackoffPolicy.LINEAR, 1, TimeUnit.MINUTES)
                 build()
             }
 
@@ -163,6 +182,23 @@ object Downloader {
 
     class Worker(appContext: Context, params: WorkerParameters) :
         CoroutineWorker(appContext, params) {
+
+        override suspend fun getForegroundInfo(): ForegroundInfo {
+            val fileName = inputData.getString(WORKER_FILE_NAME) ?: ""
+            val notification = NotificationCompat.Builder(
+                applicationContext, NOTIFICATION_CHANNEL_ID_INSTALLING
+            ).apply {
+                setSmallIcon(R.drawable.ic_mitch_notification)
+                setContentTitle(fileName)
+                setContentText(applicationContext.getString(R.string.library_item_downloading))
+                setOngoing(true)
+            }.build()
+            return ForegroundInfo(
+                inputData.getLong(WORKER_DOWNLOAD_OR_INSTALL_ID, -1).toInt(),
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        }
 
         override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
             val url = inputData.getString(WORKER_URL)!!
@@ -257,6 +293,9 @@ object Downloader {
                                         "Download incomplete: got ${file.length()} of $contentLength bytes")
                                 if (downloadType == DownloadType.INSTALL_APK && !Utils.isValidZip(file))
                                     throw IOException("Downloaded file is not a valid APK")
+                                if (downloadType == DownloadType.INSTALL_MISC && fileName.endsWith(".zip")
+                                    && !Utils.isValidZip(file))
+                                    throw IOException("Downloaded file is not a valid archive")
                             }
                         }
 
@@ -275,24 +314,48 @@ object Downloader {
                             fileName, uploadId, downloadOrInstallId, downloadType)
                 }
             } catch (_: CancellationException) {
-                listener.onCancel(applicationContext, downloadOrInstallId)
-                Result.failure()
-            } catch (e: Exception) {
-                Log.e(LOGGING_TAG, "Caught while downloading", e)
-                val errorName = when (e) {
-                    is SessionInstaller.NotEnoughSpaceException ->
-                        if (fileName.endsWith(".apk"))
-                            R.string.dialog_installer_no_space
-                        else
-                            R.string.notification_download_no_space
-                    is IOException -> R.string.notification_download_io_error
-                    else -> R.string.notification_download_unknown_error
+                // A user cancel cancels the unique work itself, so WorkManager marks it CANCELLED
+                // and ignores any result we return. Every other stop (app backgrounded, process
+                // preempted, foreground time cap) must not silently kill the download — reschedule
+                // it so it resumes the next time the work runs.
+                if (isStopped && runAttemptCount < MAX_RETRY_ATTEMPTS) {
+                    Log.d(LOGGING_TAG, "Download $downloadOrInstallId stopped mid-run, " +
+                        "rescheduling (attempt ${runAttemptCount + 1})")
+                    Result.retry()
+                } else {
+                    listener.onCancel(applicationContext, downloadOrInstallId)
+                    Result.failure()
                 }
-                listener.onError(
-                    applicationContext, fileName, uploadId, downloadOrInstallId, downloadType,
-                    e.localizedMessage ?: applicationContext.getString(errorName), e
-                )
-                Result.failure()
+            } catch (e: Exception) {
+                // The response is closed by invokeOnCancellation while we're being stopped, which
+                // can race the copy loop and surface as an IOException instead of a cancellation.
+                // Treat that like a stop, not an error.
+                if (isStopped) {
+                    if (runAttemptCount < MAX_RETRY_ATTEMPTS) {
+                        Log.d(LOGGING_TAG, "Download $downloadOrInstallId interrupted while " +
+                            "stopping, rescheduling (attempt ${runAttemptCount + 1})")
+                        Result.retry()
+                    } else {
+                        listener.onCancel(applicationContext, downloadOrInstallId)
+                        Result.failure()
+                    }
+                } else {
+                    Log.e(LOGGING_TAG, "Caught while downloading", e)
+                    val errorName = when (e) {
+                        is SessionInstaller.NotEnoughSpaceException ->
+                            if (fileName.endsWith(".apk"))
+                                R.string.dialog_installer_no_space
+                            else
+                                R.string.notification_download_no_space
+                        is IOException -> R.string.notification_download_io_error
+                        else -> R.string.notification_download_unknown_error
+                    }
+                    listener.onError(
+                        applicationContext, fileName, uploadId, downloadOrInstallId, downloadType,
+                        e.localizedMessage ?: applicationContext.getString(errorName), e
+                    )
+                    Result.failure()
+                }
             }
 
             Result.success()
