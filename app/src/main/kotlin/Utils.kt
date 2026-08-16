@@ -10,6 +10,7 @@ import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.ConnectivityManager
@@ -137,6 +138,13 @@ object Utils {
 
     fun colorStateListOf(@ColorInt color: Int): ColorStateList {
         return ColorStateList.valueOf(color)
+    }
+
+    /**
+     * Blends [color] towards black by [fraction] (0..1).
+     */
+    fun darkenColor(@ColorInt color: Int, fraction: Float): Int {
+        return ColorUtils.blendARGB(color, Color.BLACK, fraction.coerceIn(0f, 1f))
     }
 
     /**

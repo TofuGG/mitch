@@ -5,8 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import garden.appl.mitch.database.AppDatabase
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * This is an internal receiver which only receives broadcasts when clicking
@@ -17,6 +19,10 @@ class UpdateNotificationBroadcastReceiver : BroadcastReceiver() {
         private const val LOGGING_TAG = "DownloadNotification"
 
         const val EXTRA_INSTALL_ID = "INSTALL_ID"
+
+        // Keep the DB lookup and update start off the main thread; goAsync() keeps the
+        // broadcast alive until the work completes.
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -28,16 +34,21 @@ class UpdateNotificationBroadcastReceiver : BroadcastReceiver() {
 
         val installId = extras.getInt(EXTRA_INSTALL_ID)
 
-        runBlocking(Dispatchers.IO) {
-            val db = AppDatabase.getDatabase(context)
-            val updateCheckResult = db.updateCheckDao.getUpdateCheckResult(installId)
-                ?: run {
-                    // Stale notification: the update was already installed (the row is
-                    // deleted) or the check result was cleaned up. Don't crash the app.
-                    Log.w(LOGGING_TAG, "No update check result for install $installId, ignoring")
-                    return@runBlocking
-                }
-            GameDownloader.startUpdate(context, updateCheckResult)
+        val pendingResult = goAsync()
+        scope.launch {
+            try {
+                val db = AppDatabase.getDatabase(context)
+                val updateCheckResult = db.updateCheckDao.getUpdateCheckResult(installId)
+                    ?: run {
+                        // Stale notification: the update was already installed (the row is
+                        // deleted) or the check result was cleaned up. Don't crash the app.
+                        Log.w(LOGGING_TAG, "No update check result for install $installId, ignoring")
+                        return@launch
+                    }
+                GameDownloader.startUpdate(context, updateCheckResult)
+            } finally {
+                pendingResult.finish()
+            }
         }
     }
 }

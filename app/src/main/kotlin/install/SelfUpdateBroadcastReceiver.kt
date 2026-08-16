@@ -6,12 +6,16 @@ import android.content.Intent
 import android.util.Log
 import garden.appl.mitch.database.AppDatabase
 import garden.appl.mitch.database.installation.Installation
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class SelfUpdateBroadcastReceiver : BroadcastReceiver() {
     companion object {
         private const val LOGGING_TAG = "SelfUpdateReceiver"
+
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -20,12 +24,17 @@ class SelfUpdateBroadcastReceiver : BroadcastReceiver() {
             throw RuntimeException("Wrong action type!")
 
         Log.d(LOGGING_TAG, "Mitch updated!")
-            
-        runBlocking(Dispatchers.IO) {
-            val db = AppDatabase.getDatabase(context)
-            val mitchInstall = db.installDao.getPendingInstallation(Installation.MITCH_UPLOAD_ID)
-            if (mitchInstall != null)
-                db.installDao.delete(mitchInstall)
+
+        val pendingResult = goAsync()
+        scope.launch {
+            try {
+                val db = AppDatabase.getDatabase(context)
+                val mitchInstall = db.installDao.getPendingInstallation(Installation.MITCH_UPLOAD_ID)
+                if (mitchInstall != null)
+                    db.installDao.delete(mitchInstall)
+            } finally {
+                pendingResult.finish()
+            }
         }
     }
 }

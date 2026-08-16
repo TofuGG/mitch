@@ -1,0 +1,283 @@
+# Changes
+
+Changelog for **Mitchy** releases published at
+<https://github.com/TofuGG/mitch/releases>. Newest first. Each entry is the
+release message from the matching `release` commit.
+
+## 2.3.9 (2026-08-16)
+
+Changes:
+- Web games can force the player orientation: new "Web game orientation" setting
+  (game/portrait/landscape). A declared orientation on the embed URL still wins, so
+  portrait-designed games keep running portrait; the setting only applies to games
+  that declare none, which otherwise run landscape-designed games letterboxed small
+  inside a portrait player. Re-applied on every resume so a change takes effect
+  immediately. (mentioned in https://itch.io/t/5541946/screen-resolution-issues)
+- App no longer stays rotated after a game forces landscape/portrait: GameActivity
+  records the display rotation and auto-rotate state before forcing one and persists
+  them on exit; MainActivity reads them on resume and hands the rotation back. Some
+  devices (MIUI) keep the game's forced rotation (even rewriting the global rotation
+  setting), which left the whole app stuck landscape; verified on-device that the app
+  returns to portrait even with the stale setting left behind.
+- Predictive back gesture support: MainActivity, GameActivity and OwnedGamesActivity
+  now use OnBackPressedCallback via the back dispatcher (enableOnBackInvokedCallback)
+  instead of deprecated onBackPressed(), so the system back animation works. Browse
+  still intercepts back for WebView history; other tabs fall through to the default
+  behavior (fragment back stack, then exit).
+- Browse restores the scroll position of catalogue pages: scroll positions are
+  remembered per URL on navigation and back, retried until infinite-scroll batches
+  load, and persisted across process death (PREF_BROWSE_LAST_SCROLL), so going back
+  from a game page lands where the user left off instead of at the top of the list.
+  (mentioned in https://itch.io/t/1908481/bug-losing-current-page-when-losing-focus)
+- Back on the Browse start page scrolls to the top instead of closing the app, so a
+  back press after scrolling down does not kill the app by accident.
+  (mentioned in https://itch.io/t/5658626/feature-request-scroll-to-top)
+- Back on a game page with no WebView history loads the start page instead of exiting
+  (restored sessions can land on a game page with an empty back stack), and the
+  fallback clears history so back cannot loop back into the game page.
+  (mentioned in https://itch.io/t/1908481/bug-losing-current-page-when-losing-focus)
+- Web games with a PWA service worker (Godot exports especially) no longer render as
+  raw HTML source: GameActivity replaces the SW script with a no-op shim so requests
+  flow through WebGameCache, restoring both rendering and offline caching.
+- Offline web-game cache hardened: every request gets a stable ?mitchy=1 marker (some
+  networks truncate transfers served for an exact URL; verified a content pack died at
+  ~7.1 MB with the exact URL and downloaded fully with the marker), offline misses try
+  the network once to repopulate the cache, and a stale Content-Type header no longer
+  makes WebView render documents as plain text.
+- versionCode scheme fixed: pre-release suffixes now sort below the stable release
+  (2.3.8 -> 203080, 2.3.8-beta2 -> 203082, 2.3.9 -> 203090) instead of above it, so a
+  final release is always installable as an upgrade over the betas.
+- Downloads survive the app leaving the foreground: downloads now run in a dedicated
+  foreground service (dataSync) instead of WorkManager expedited workers, which the OS
+  stopped silently in the background (10-minute cap, OEM battery savers), killing the
+  transfer and leaving a stale progress notification and a stuck library row.
+  (mentioned in https://itch.io/t/5280860/app-doesnt-install-games)
+- Tapping a download notification opens the app in the Library tab, so the download's
+  progress and final status stay visible while it runs in the background.
+- A failed download/install can be removed from the library: the 3-dot menu now shows
+  Cancel on failed rows too (previously the menu was empty), and a row whose session
+  vanished is deleted instead of doing nothing or crashing.
+- The bottom navigation bar auto-hides while scrolling down and reappears on scroll up
+  in Browse, Library and Updates, giving the content more screen space; a new "Keep
+  navigation bar visible" setting disables it. Game pages keep their existing fullscreen
+  logic, and the speed dial floats above the bar. Programmatic scrolls (page loads and
+  scroll restoration) never trigger it, and a short cooldown prevents noisy scroll
+  deltas from cancelling the slide animation mid-flight.
+- The scroll-to-top speed dial button now reflects a change made in Settings
+  immediately: the dial is rebuilt when returning to the Browse tab.
+- Startup and tab-opening jank reduced: the Room database is pre-warmed in the
+  background at app start, Library/Updates ViewModels no longer block the main thread
+  while the database is built, and the download/install/update broadcast receivers use
+  goAsync() instead of blocking the main thread in onReceive. Downloads drop a redundant
+  buffering layer, and debug builds enable StrictMode to catch main-thread disk/network
+  regressions during development.
+
+## 2.3.8-beta2 (2026-08-16)
+
+Changes:
+- versionCode derivation now folds pre-release build numbers into the code:
+  "2.3.8-beta" -> 20308 and "2.3.8-beta2" -> 203082, so each pre-release
+  build is a strict upgrade over the previous one and installs cleanly.
+- Bundles the download-foreground and Godot-offline fixes from 07242eb.
+
+## 2.3.8-beta (2026-08-16)
+
+Changes:
+- versionCode derivation now strips pre-release suffixes so "2.3.8-beta"
+  resolves to versionCode 20308 instead of falling back to 20303, keeping
+  the beta monotonic above 2.3.7 (20307) and installable as an upgrade.
+
+## 2.3.7 (2026-08-15)
+
+Changes:
+- External download links (non-itch.io uploads) now download as plain files
+  into Downloads instead of silently doing nothing: ItchBrowseHandler falls
+  back to a direct Downloader download when the URL carries no itch upload id.
+  (mentioned in https://todo.sr.ht/~gardenapple/mitch/5)
+- Browser data export/import: new Settings actions that back up the WebView
+  storage (cookies, localStorage, IndexedDB, service workers) to a zip in
+  Downloads and restore it on the next app launch, preserving web-game saves.
+  (mentioned in https://itch.io/t/4677526/import-saves-how)
+- Desktop site toggle: checkable toolbar item plus a Settings switch that
+  loads pages in Browse with a desktop user agent instead of the mobile site.
+  (mentioned in https://itch.io/t/6622118/any-way-to-export-in-app-browser-data-or-put-in-app-browser-into-desktop-mode)
+- Search by game name added to the app bar on every page, not just the speed
+  dial, so it is easier to find.
+  (mentioned in https://itch.io/t/6524479/searching-a-specific-game-in-mitch)
+- New Settings toggles for Search, Desktop site, genre exclusion and the
+  text-game player fill; the tag-exclusion toggle now also stops the filter
+  JS, so a disabled filter no longer keeps hiding games.
+- Block trackers is now enabled by default for new installs.
+
+## 2.3.6 (2026-08-15)
+
+Changes:
+- Landscape/portrait web games now auto-rotate the player to match the
+  orientation the developer declared on itch.io (the `orientation` query
+  parameter of the game's embed URL): landscape/landscape_left -> landscape
+  (device top to the left), landscape_right -> reverse landscape, portrait ->
+  portrait. Games without a declared orientation are untouched. The activity
+  handles configChanges, so the running game is not reloaded on rotation.
+  New Utils.parseWebGameOrientation plus unit tests.
+- itch.io's "Use a dark theme where available" is now enforced in the Browse
+  tab based on the app's effective theme, even for logged-out sessions: the
+  browse WebView toggles itch.io's own `dark_theme` body class on every page
+  load (mirroring shouldHandleDayNightThemes, so custom-themed game/profile/
+  jam pages keep their own colors). App-dark detection follows the theme
+  preference (dark/light/system/site), same logic as setThemeFromPreferences.
+- Browse tab now follows app theme changes live: the dark-theme class is
+  re-applied on fragment resume (AppCompat recreates the activity on a theme
+  change, and WebView.restoreState revives the page without firing
+  onPageStarted, which previously left the page dark after switching back to
+  light) and on onConfigurationChanged (MainActivity handles uiMode in
+  configChanges, so OS-level dark/light toggles would otherwise not update
+  the page until the next load).
+
+## 2.3.5 (2026-08-15)
+
+Changes:
+- App crashed on launch with ClassNotFoundException for tofu.gg.mitchy.Mitch:
+  the package rename (e80075a) changed the Gradle namespace and applicationId
+  to tofu.gg.mitchy, and Android resolves relative manifest class names
+  against the namespace, so every component pointed at tofu.gg.mitchy.*
+  classes that do not exist — the Kotlin classes live in the upstream
+  garden.appl.mitch package. AndroidManifest.xml now references fully
+  qualified garden.appl.mitch.* names for the application, all activities,
+  receivers and services, so the app starts again.
+
+## 2.3.4 (2026-08-14)
+
+Changes:
+- The app is now a single "Mitchy" variant (the fdroid/itchio flavors were
+  removed) renamed to tofu.gg.mitchy. It self-updates via this fork's GitHub
+  releases API instead of itch.io, lists itself in the library
+  (Game.MITCH_GAME_ID, which update checks skip), and derives its version and
+  versionCode from the release commit message ("release v2.3.4" -> 2.3.4 /
+  20304). CI signs the release APK with repo secrets.
+- Library silently loses installed games: Utils.isPackageInstalled now only
+  treats a package as uninstalled on NameNotFoundException, and DatabaseCleanup
+  no longer auto-removes STATUS_INSTALLED rows.
+  (mentioned in https://itch.io/t/4096134/apps-are-lost-from-library)
+- itch.io login lost on process kill / reboot: SessionCookieStore snapshots
+  WebView cookies for itch.io/itch.zone/github.com whenever the whole app goes
+  to the background and re-injects them on startup.
+  (mentioned in https://itch.io/t/3985413/mitch-is-not-maintaining-itch-logins)
+- Failed installs silently delete games: a new STATUS_FAILURE state keeps the
+  library row, shows "Installation failed", and clears stale markers on retry.
+  (mentioned in https://itch.io/t/4618312/there-is-a-problem-at-analyzing-this-package and
+  https://itch.io/t/5280860/app-doesnt-install-games)
+- Downloads never start for some files: Content-Length is now optional end to
+  end, so files served without it (chunked/redirected) stream normally instead
+  of waiting forever.
+  (mentioned in https://todo.sr.ht/~gardenapple/mitch/41 and
+  https://itch.io/t/1995499/downloads-not-starting)
+- Corrupt/truncated APKs no longer reach the package installer (the source of
+  Android's "problem parsing the package" error): the download worker verifies
+  the downloaded size against content-length and checks the APK is a
+  structurally valid ZIP (Utils.isValidZip) before marking it ready.
+  (mentioned in https://itch.io/t/4618312/there-is-a-problem-at-analyzing-this-package)
+- Android games shipped inside a .zip are extracted (Utils.extractApkFromZip)
+  and installed like a regular APK download, and their package name is recorded
+  so updates can be tracked.
+  (mentioned in https://itch.io/t/1990557/doesnt-detect-android-game-in-zip-file-as-installed)
+- Rows stuck in STATUS_DOWNLOADING after a process death are cleaned up again:
+  Downloader.checkIsDownloading checked the ListenableFuture.isDone flag
+  (whether the query had resolved) instead of the work state, so the daily
+  cleanup never cleared them; it now inspects the WorkInfo state
+  (enqueued/running).
+- Spurious update notifications: onInstallResult records the installed
+  versionName and checkMitchUpdate compares against BuildConfig.VERSION_NAME;
+  Utils.compareVersions also treats trailing zero components as equal
+  ("1.0.0" == "1.0"), so a version never looks newer just because it has more
+  numeric parts.
+  (mentioned in https://itch.io/t/5207096/mitch-update-on-mitch)
+- Update checks aborted on HTTP 429 (Too Many Requests): retries now back off
+  exponentially with a hard 30s sleep so the rate limit can reset.
+  (mentioned in https://itch.io/t/3088989/my-games-wont-update-due-to-code-429-errors-too-many-requests)
+- A renamed game page could fork the library and updates into duplicates:
+  finished installs are deduplicated by package name on completion.
+  (mentioned in https://itch.io/t/1952022/bug-updatelibrary-duplicates)
+- "Only Android" filter in Owned items works again: it now uses itch.io's
+  server-side platform=android parameter instead of the removed .icon-android
+  platform icons.
+  (mentioned in https://itch.io/t/2192884/only-android-filter-not-working)
+- Updates that fail with "App conflicts with an existing package" (dev
+  re-signed the APK or the app is installed from another store) can now be
+  force-installed.
+  (mentioned in https://itch.io/t/3102637/error-when-trying-to-install-update)
+- Removed/malformed game pages no longer crash the app: the library parser
+  skips broken game_cell entries, the paging source catches any parse error,
+  and GameActivity shows a "game not available" message instead of crashing.
+  (mentioned in https://todo.sr.ht/~gardenapple/mitch/76)
+- Light/dark theme no longer flips when a page loads in the background: Mitch
+  tracks foreground activity and skips theme writes/applications while hidden.
+  (mentioned in https://todo.sr.ht/~gardenapple/mitch/78)
+- WebView "host not found"/DNS errors show a friendly in-app retry page for
+  main frames instead of the system error page; subresource failures are
+  ignored.
+  (mentioned in https://todo.sr.ht/~gardenapple/mitch/50)
+- Crash when clicking on a creator: a stale JS-interface nonce after a WebView
+  session restore threw a SecurityException; stale calls are now dropped with a
+  log instead, and updateUI bails out if the action bar isn't ready.
+  (mentioned in https://todo.sr.ht/~gardenapple/mitch/84)
+- Text-based games (Twine & friends) render as a tiny strip: the embed iframe
+  height is now forced to 100% so they fill the player.
+  (mentioned in https://itch.io/t/2393827/cant-play-text-based-games)
+- HTML5 games cut off in the player: enabled useWideViewPort,
+  loadWithOverviewMode, zoom controls and setInitialScale(1) in the game
+  WebView.
+  (mentioned in https://itch.io/t/5541946/screen-resolution-issues)
+- Browse "exclude genre/tags" filters were lost when leaving the games list:
+  they are now persisted in SharedPreferences and re-applied on every catalogue
+  load, and the FAB no longer accumulates duplicate filter buttons on repeated
+  UI updates.
+  (mentioned in https://itch.io/t/2803353/exclude-genre-preference-seems-to-be-lost-when-viewing-a-game-and-then-going-back-to-the-games-list)
+- Browse tab returned to a stale page after focus loss / process death: the
+  current URL is saved on pause and restored when the revived state shows a
+  different page.
+  (mentioned in https://itch.io/t/1908481/bug-losing-current-page-when-losing-focus)
+- New "exclude tags" (driven by itch.io's tags.json) and "scroll to top"
+  actions on catalogue pages, gated behind settings that re-apply on resume.
+  (mentioned in https://itch.io/t/4311824/feature-exclude-tags and
+  https://itch.io/t/5658626/feature-request-scroll-to-top)
+- Browse downloads from search results could fail silently: tryStartDownload no
+  longer drops incomplete download requests without feedback.
+  (mentioned in https://itch.io/t/4402505/downloading-from-search)
+- Owned items screen rewritten as a paged list with date separators, search and
+  the Android filter.
+  (mentioned in https://itch.io/t/2499642/list-owned-items)
+- Per-game update tracking was revived: store/download pages gain "Subscribe to
+  updates" / "Stop tracking updates" actions (gated behind a "Track individual
+  game files" setting), and a new "Automatic update checks" toggle fully
+  disables the daily WorkManager update check.
+  (mentioned in https://itch.io/t/6002275/feature-request-ability-to-stop-tracking-updates-for-a-gamepage and
+  https://itch.io/t/4634182/android-please-allow-the-option-to-turn-off-automatic-updates)
+- Fullscreen video in the browser and game player exits correctly on back: back
+  no longer closes the whole app (it called MainActivity.finish), and the
+  fullscreen view/callback are tracked and released on hide (GameActivity never
+  assigned its customView field, so the view was never removed and the WebView
+  was never told it left fullscreen).
+- base64 data: URLs containing '+' were corrupted: URLDecoder turns '+' into a
+  space, breaking those downloads; replaced with a proper percent-decoder and
+  covered by a new DataURL regression test.
+- Tapping a stale "update available" notification crashed the app
+  (UpdateNotificationBroadcastReceiver force-unwrapped missing extras or a
+  deleted update-check row); it now logs and ignores.
+- WebView prompt() dialogs returned the prompt's message instead of what the
+  user typed; they now confirm with the input text.
+- Hardened install flows: onCompleted no longer force-unwraps a vanished
+  pending row (which crashed the worker and left games at "Installing..."
+  forever), cancelling a pending install with a missing download id no longer
+  crashes, and an "Install" tap on a ready game with a missing file marks it
+  STATUS_FAILURE with a retry prompt instead of doing nothing.
+- Download progress no longer divides by zero for unknown content lengths.
+- Verified no change needed: image/file uploads in comments were already wired
+  (mentioned in https://itch.io/t/2473756/cannot-share-images-in-comments);
+  the "all games show an update error" flood was already addressed by the 429
+  backoff; the icon-font CORS issue and the broken "See all owned items" list
+  were fixed upstream or in the rewritten OwnedGamesActivity
+  (mentioned in https://todo.sr.ht/~gardenapple/mitch/31).
+
+## 1 (2026-08-14)
+
+Initial Mitchy release of the fork (first working GitHub self-update build).

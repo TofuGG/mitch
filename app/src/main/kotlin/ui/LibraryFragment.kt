@@ -43,6 +43,12 @@ class LibraryFragment : Fragment() {
         _binding = LibraryFragmentBinding.inflate(inflater, container, false)
         val view = binding.root
 
+        // The whole library is one ScrollView of horizontal carousels; report its vertical
+        // scroll to MainActivity so the bottom navigation auto-hides on scroll down.
+        view.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+            (activity as? MainActivity)?.onContentScrolled(scrollY - oldScrollY)
+        }
+
         addList(
             GameRepository.Type.Pending,
             binding.pendingList,

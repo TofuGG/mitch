@@ -5,12 +5,16 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import garden.appl.mitch.database.AppDatabase
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class UninstallBroadcastReceiver : BroadcastReceiver() {
     companion object {
         private const val LOGGING_TAG = "UninstallReceiver"
+
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -23,9 +27,14 @@ class UninstallBroadcastReceiver : BroadcastReceiver() {
         val packageName = intent.data!!.schemeSpecificPart
         Log.d(LOGGING_TAG, "Package name: $packageName")
 
-        runBlocking(Dispatchers.IO) {
-            val db = AppDatabase.getDatabase(context)
-            db.installDao.deleteFinishedInstallation(packageName)
+        val pendingResult = goAsync()
+        scope.launch {
+            try {
+                val db = AppDatabase.getDatabase(context)
+                db.installDao.deleteFinishedInstallation(packageName)
+            } finally {
+                pendingResult.finish()
+            }
         }
     }
 }

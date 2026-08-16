@@ -7,12 +7,15 @@ import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentTransaction
 import androidx.preference.PreferenceManager
@@ -37,6 +40,12 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
     private lateinit var browseFragment: BrowseFragment
     private lateinit var currentFragmentTag: String
 
+    private var bottomNavHidden = false
+
+    // Uptime millis of the last auto-hide/show flip; used to debounce flips caused by
+    // noisy scroll deltas (see BOTTOM_NAV_TOGGLE_COOLDOWN).
+    private var lastNavToggleTime = 0L
+
     lateinit var binding: ActivityMainBinding
         private set
 
@@ -47,6 +56,18 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
         const val EXTRA_SHOULD_OPEN_LIBRARY = "SHOULD_OPEN_LIBRARY"
         
         private const val ACTIVE_FRAGMENT_KEY: String = "fragment"
+
+        // Scroll distance (in px) that must be crossed in one direction before the bottom
+        // navigation bar auto-hides/reappears; prevents jitter from tiny scroll deltas.
+        private const val BOTTOM_NAV_AUTO_HIDE_THRESHOLD = 12
+
+        // Slide duration for the auto-hiding navigation bar and the content that expands into
+        // the space it vacates.
+        private const val BOTTOM_NAV_ANIM_DURATION = 200L
+
+        // Minimum time between auto-hide/show flips triggered by scrolling. A noisy scroll
+        // delta right after a flip would otherwise cancel the running slide animation mid-flight.
+        private const val BOTTOM_NAV_TOGGLE_COOLDOWN = 200L
 
         const val BROWSE_FRAGMENT_TAG: String = "browse"
         const val LIBRARY_FRAGMENT_TAG: String = "library"
@@ -61,8 +82,15 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        //Add app bar, hidden by default
+        // Add app bar, hidden by default
         setSupportActionBar(binding.toolbar)
+
+        // The content area fills the whole screen and the bottom bar (nav + game bar) overlays
+        // it, so reserve space for it with a bottom margin. Keep that margin in sync whenever the
+        // bar's height changes (e.g. the game bar appearing on a game page).
+        binding.bottomView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateContentBottomInset()
+        }
 
         // Handle back through the dispatcher instead of overriding onBackPressed(), so
         // the system predictive back animation works. The Browse tab intercepts back to
@@ -175,6 +203,15 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
             if (!db.isOpen)
                 db.installDao.getInstallationByPackageName(packageName)
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // Tapping a download progress notification lands here when the activity is already
+        // running (e.g. the app was sent to the background during the download); open Library.
+        if (intent.getBooleanExtra(EXTRA_SHOULD_OPEN_LIBRARY, false))
+            setActiveFragment(LIBRARY_FRAGMENT_TAG)
     }
 
     override fun onResume() {
@@ -302,11 +339,84 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
 
         currentFragmentTag = newFragmentTag
 
+        // A tab switch always brings the auto-hidden navigation bar back.
+        resetBottomNav()
+
         if (newFragmentTag == BROWSE_FRAGMENT_TAG) {
             browseFragment.updateUI()
             binding.speedDial.show()
         } else {
             binding.speedDial.hide()
+        }
+    }
+
+    /**
+     * Scroll-aware auto-hide for the bottom navigation bar. Each tab's scrollable reports its
+     * vertical scroll delta here (positive = scrolling down). The bar slides out while scrolling
+     * down and slides back in while scrolling up. Never fights the Browse game-page logic, which
+     * hides the bar entirely ([View.GONE]): no-op unless the bar is currently visible.
+     */
+    fun onContentScrolled(dy: Int) {
+        val nav = binding.bottomNavigationView
+        if (nav.visibility != View.VISIBLE)
+            return
+        // Debounce: ignore scroll deltas that arrive right after a flip so they can't
+        // cancel the slide animation mid-flight (e.g. a fast fling overshooting).
+        if (SystemClock.uptimeMillis() - lastNavToggleTime < BOTTOM_NAV_TOGGLE_COOLDOWN)
+            return
+        if (dy > BOTTOM_NAV_AUTO_HIDE_THRESHOLD)
+            setBottomNavHidden(true)
+        else if (dy < -BOTTOM_NAV_AUTO_HIDE_THRESHOLD)
+            setBottomNavHidden(false)
+    }
+
+    /**
+     * Makes sure the bottom navigation bar is back on screen, cancelling any pending hide
+     * animation and restoring the content to sit above it. Called on tab switches and after any
+     * Browse page change, so a stale hidden state can never leave the bar missing or the
+     * game-install bar overlaying content.
+     */
+    fun resetBottomNav() {
+        setBottomNavHidden(false)
+    }
+
+    private fun setBottomNavHidden(hidden: Boolean) {
+        if (bottomNavHidden == hidden)
+            return
+        bottomNavHidden = hidden
+        lastNavToggleTime = SystemClock.uptimeMillis()
+
+        // Only the bar itself animates (a cheap translation, GPU-only). The content is already
+        // full-height underneath it, so we just drop the reserved bottom margin; no layout
+        // animation on the content, which would be laggy with a WebView.
+        val nav = binding.bottomNavigationView
+        nav.animate().cancel()
+        nav.animate()
+            .translationY(if (hidden) nav.height.toFloat() else 0f)
+            .setDuration(BOTTOM_NAV_ANIM_DURATION)
+            .setInterpolator(DecelerateInterpolator())
+            .start()
+
+        updateContentBottomInset()
+    }
+
+    /**
+     * Reserves the bottom bar's height (nav + game bar) below the content by setting a bottom
+     * margin on the content area and the speed dial FAB. The content always fills the whole
+     * screen and the bar overlays it, so when the nav auto-hides the margin drops to 0 and the
+     * already-present content fills the vacated space — no blank strip.
+     */
+    private fun updateContentBottomInset() {
+        val inset = if (bottomNavHidden) 0 else binding.bottomView.height
+        val containerParams = binding.fragmentContainer.layoutParams as ConstraintLayout.LayoutParams
+        val fabParams = binding.speedDial.layoutParams as ConstraintLayout.LayoutParams
+        if (containerParams.bottomMargin != inset) {
+            containerParams.bottomMargin = inset
+            binding.fragmentContainer.requestLayout()
+        }
+        if (fabParams.bottomMargin != inset) {
+            fabParams.bottomMargin = inset
+            binding.speedDial.requestLayout()
         }
     }
 

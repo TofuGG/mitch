@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.ListPreloader
 import com.bumptech.glide.RequestBuilder
@@ -60,6 +61,13 @@ class UpdatesFragment : Fragment(), CoroutineScope by MainScope() {
             Glide.with(this), modelProvider, sizeProvider, 6
         )
         binding.updateResults.addOnScrollListener(preloader)
+
+        // Auto-hide the bottom navigation when scrolling down the update list.
+        binding.updateResults.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                (activity as? MainActivity)?.onContentScrolled(dy)
+            }
+        })
 
         availableResultsViewModel = ViewModelProvider(this).get(UpdateCheckResultViewModel::class.java)
         availableResultsViewModel.availableUpdates.observe(viewLifecycleOwner) { availableUpdates ->

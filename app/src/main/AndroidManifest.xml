@@ -22,8 +22,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
-    <!-- Foreground service type used by WorkManager's expedited (foreground) download
-        workers, so downloads keep running when the app is in the background. -->
+    <!-- Foreground service type used by the download service, so downloads keep
+        running when the app is in the background or removed from the recents screen. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- Show warning to the user if manually checking updates with no Internet connection. -->
@@ -150,12 +150,12 @@
         <service
                 android:foregroundServiceType="shortService"
                 android:name="garden.appl.mitch.install.SessionInstallerService" />
-        <!-- WorkManager's expedited (foreground) download workers run on this service; merge the
-            dataSync type so the app is allowed to start it while in the background on Android 14+. -->
+        <!-- Downloads run on a dedicated foreground service (see Downloader.requestDownload)
+            so they keep going when the app is backgrounded or removed from the recents screen. -->
         <service
-                android:name="androidx.work.impl.foreground.SystemForegroundService"
+                android:exported="false"
                 android:foregroundServiceType="dataSync"
-                tools:node="merge" />
+                android:name="garden.appl.mitch.files.DownloadService" />
         <provider
                 android:name="androidx.core.content.FileProvider"
                 android:authorities="${applicationId}.fileprovider"

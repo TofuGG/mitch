@@ -191,6 +191,8 @@
     <string name="settings_tag_exclusion_enabled_desc">Adds a button to the Browse screen for hiding games with selected tags.</string>
     <string name="settings_scroll_to_top_enabled">Scroll to top button</string>
     <string name="settings_scroll_to_top_enabled_desc">Adds a button to quickly scroll back to the top of the page in Browse.</string>
+    <string name="settings_bottom_nav_always_visible">Keep navigation bar visible</string>
+    <string name="settings_bottom_nav_always_visible_desc">Keeps the Browse, Library, Updates and Settings bar visible on game, creator and forum pages.</string>
     <string name="settings_search_enabled">Search by game name</string>
     <string name="settings_search_enabled_desc">Adds a Search button to the toolbar and the speed dial for finding games by name.</string>
     <string name="settings_desktop_mode">Desktop site</string>

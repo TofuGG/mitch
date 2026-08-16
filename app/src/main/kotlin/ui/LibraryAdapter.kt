@@ -319,8 +319,9 @@ class LibraryAdapter internal constructor(
                 removeItem(R.id.delete)
             if (!(type == GameRepository.Type.Downloads && gameInstall.externalFileUri != null))
                 removeItem(R.id.remove)
-            if (type != GameRepository.Type.Pending
-                || gameInstall.status == Installation.STATUS_FAILURE)
+            // "Cancel" also removes a failed download/install from the list; without it a
+            // failed game in the Pending tab has an empty overflow menu.
+            if (type != GameRepository.Type.Pending)
                 removeItem(R.id.cancel)
 
             setCallback(object : MenuBuilder.Callback {
@@ -552,13 +553,20 @@ class LibraryAdapter internal constructor(
             }
             R.id.cancel -> {
                 mainActivityScope.launch(Dispatchers.Main) {
-                    Installations.cancelPending(
-                        context,
-                        gameInstall.status,
-                        gameInstall.downloadOrInstallId!!,
-                        gameInstall.uploadId,
-                        gameInstall.installId
-                    )
+                    val downloadOrInstallId = gameInstall.downloadOrInstallId
+                    if (downloadOrInstallId == null) {
+                        // A failed download/install has no active session anymore; just remove
+                        // the row (same as Installations.cancelPending's null handling).
+                        AppDatabase.getDatabase(context).installDao.delete(gameInstall.installId)
+                    } else {
+                        Installations.cancelPending(
+                            context,
+                            gameInstall.status,
+                            downloadOrInstallId,
+                            gameInstall.uploadId,
+                            gameInstall.installId
+                        )
+                    }
                     Toast.makeText(
                         context,
                         context.getString(R.string.dialog_cancel_download_done),

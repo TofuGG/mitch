@@ -17,6 +17,7 @@ import garden.appl.mitch.NOTIFICATION_TAG_DOWNLOAD
 import garden.appl.mitch.NOTIFICATION_TAG_DOWNLOAD_LONG
 import tofu.gg.mitchy.R
 import garden.appl.mitch.Utils
+import garden.appl.mitch.ui.MainActivity
 import garden.appl.mitch.ui.MitchActivity
 import java.io.File
 
@@ -109,6 +110,14 @@ open class DownloadFileListener {
                 setProgress(100, progressPercent, false)
             else
                 setProgress(100, 0, true)
+
+            // Tapping the notification opens the app in the Library tab, so the download's
+            // progress and final status stay visible while it runs in the background.
+            val libraryIntent = Intent(context, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_SHOULD_OPEN_LIBRARY, true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            setContentIntent(PendingIntentCompat.getActivity(context, 0, libraryIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT, false))
 
             val cancelIntent = Intent(context, DownloadCancelBroadcastReceiver::class.java).apply {
                 putExtra(DownloadCancelBroadcastReceiver.EXTRA_DOWNLOAD_ID, downloadId)

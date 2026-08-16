@@ -48,6 +48,10 @@ The release APK will be written to `app/build/outputs/apk/release/`.
 
 Mitchy lists itself in your library and checks the project's [GitHub releases](https://github.com/TofuGG/mitch/releases) for updates, so you'll be notified when a new version is available.
 
+## Changelog
+
+Every release's changes are collected in [Changes.txt](Changes.txt).
+
 ## Contributing
 
 Upstream bug reports and translations for the original Mitch project:

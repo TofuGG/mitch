@@ -29,6 +29,11 @@
                 android:summary="@string/settings_scroll_to_top_enabled_desc"
                 android:title="@string/settings_scroll_to_top_enabled" />
         <SwitchPreference
+                android:defaultValue="false"
+                android:key="mitch.bottom_nav_always_visible"
+                android:summary="@string/settings_bottom_nav_always_visible_desc"
+                android:title="@string/settings_bottom_nav_always_visible" />
+        <SwitchPreference
                 android:defaultValue="true"
                 android:key="mitch.search_enabled"
                 android:summary="@string/settings_search_enabled_desc"

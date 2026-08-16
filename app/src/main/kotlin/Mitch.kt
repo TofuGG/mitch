@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
+import android.os.StrictMode
 import android.util.Log
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.edit
@@ -18,6 +19,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import garden.appl.mitch.client.UpdateChecker
+import garden.appl.mitch.database.AppDatabase
 import garden.appl.mitch.database.DatabaseCleanup
 import garden.appl.mitch.files.ExternalFileManager
 import garden.appl.mitch.files.WebGameCache
@@ -26,6 +28,9 @@ import garden.appl.mitch.install.InstallationDatabaseManager
 import garden.appl.mitch.install.InstallationDownloadManager
 import garden.appl.mitch.ui.CrashDialog
 import garden.appl.mitch.ui.MitchContextWrapper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import okhttp3.Cache
 import okhttp3.OkHttpClient
 import org.acra.ACRA
@@ -115,6 +120,7 @@ const val PREF_UPDATE_CHECK_ENABLED = "mitch.update_check_enabled"
 const val PREF_UPDATE_TRACKING_ENABLED = "mitch.per_game_update_tracking"
 const val PREF_TAG_EXCLUSION_ENABLED = "mitch.tag_exclusion_enabled"
 const val PREF_SCROLL_TO_TOP_ENABLED = "mitch.scroll_to_top_enabled"
+const val PREF_BOTTOM_NAV_ALWAYS_VISIBLE = "mitch.bottom_nav_always_visible"
 
 const val PREF_DEBUG_WEB_GAMES_IN_BROWSE_TAB = "mitch.debug.web_games_in_browse"
 
@@ -272,6 +278,8 @@ class Mitch : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        if (BuildConfig.DEBUG)
+            enableStrictMode()
         registerActivityLifecycleCallbacks(activityLifecycleCallbacks)
         if (ACRA.isACRASenderServiceProcess())
             return
@@ -351,8 +359,44 @@ class Mitch : Application() {
             PeriodicWorkRequestBuilder<DatabaseCleanup.Worker>(1, TimeUnit.DAYS).build()
         )
 
+        // Build the Room database in the background right now, so the one-time cost (schema
+        // migration, the Mitchy self-row upsert, first cleanup) is paid before the user opens
+        // the Library/Updates tabs instead of freezing them. The ViewModels still fetch their
+        // data asynchronously, so this only removes the cold-start stall.
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                AppDatabase.getDatabase(this@Mitch)
+            } catch (e: Exception) {
+                Log.e(LOGGING_TAG, "Failed to pre-warm the database", e)
+            }
+        }
+
         // Restore session cookies (itch.io/GitHub login) that don't survive a reboot
         SessionCookieStore.restore(this)
+    }
+
+    /**
+     * Debug builds only: flag main-thread disk/network access and leaked objects in logcat,
+     * so regressions that block the main thread show up during development. Never enabled in
+     * release builds (StrictMode is purely a development aid and adds overhead).
+     */
+    private fun enableStrictMode() {
+        StrictMode.setThreadPolicy(
+            StrictMode.ThreadPolicy.Builder()
+                .detectDiskReads()
+                .detectDiskWrites()
+                .detectNetwork()
+                .penaltyLog()
+                .build()
+        )
+        StrictMode.setVmPolicy(
+            StrictMode.VmPolicy.Builder()
+                .detectLeakedSqlLiteObjects()
+                .detectLeakedClosableObjects()
+                .detectLeakedRegistrationObjects()
+                .penaltyLog()
+                .build()
+        )
     }
 
     /**
@@ -452,18 +496,11 @@ class Mitch : Application() {
             excludeMatchingSharedPreferencesKeys = listOf(".*(racial|justice|palestine|ukraine|trans_texas).*")
 
             mailSender {
-                mailTo = "~gardenapple/mitch-bug-reports@lists.sr.ht, mitch@appl.garden"
-                subject = "[insert Mitch bug here]"
+                mailTo = "tofu.techzone@gmail.com"
+                subject = "[Insert Mitch bug here]"
                 //Email body is English only, this is intentional
                 body = """
                     > Please describe what you were doing when you got the error.
-                    
-                    > Note: SourceHut does not accept email in HTML format,
-                    > for security and privacy reasons.
-                    > Please send this message as "plain text" if you can.
-                    
-                    > Your message will be published on SourceHut,
-                    > and also sent to the developer's personal address.
                     
                     > Thank you for your help!
                 """.trimIndent()

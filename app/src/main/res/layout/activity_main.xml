@@ -22,33 +22,20 @@
             android:id="@+id/fragmentContainer"
             android:layout_width="0dp"
             android:layout_height="0dp"
-            app:layout_constraintBottom_toTopOf="@id/bottomView"
+            app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/toolbar" />
 
-    <FrameLayout
+    <LinearLayout
             android:id="@+id/bottomView"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:orientation="vertical"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent">
 
-        <com.google.android.material.bottomnavigation.BottomNavigationView
-                tools:visibility="gone"
-                android:id="@+id/bottomNavigationView"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="?colorPrimary"
-                android:elevation="10dp"
-                android:paddingLeft="0dp"
-                android:paddingRight="0dp"
-                app:itemBackground="?colorPrimary"
-                app:itemIconTint="@drawable/bottom_navigation_selector"
-                app:itemTextColor="@drawable/bottom_navigation_selector"
-                app:labelVisibilityMode="labeled"
-                app:menu="@menu/main" />
         <LinearLayout
                 android:visibility="gone"
                 tools:visibility="visible"
@@ -73,16 +60,42 @@
                     android:maxLines="2"
                     android:text="$5.10 or more, or maybe there is a lot of text in here, I don't really know" />
         </LinearLayout>
-    </FrameLayout>
+
+        <com.google.android.material.bottomnavigation.BottomNavigationView
+                tools:visibility="gone"
+                android:id="@+id/bottomNavigationView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?colorPrimary"
+                android:elevation="10dp"
+                android:paddingLeft="0dp"
+                android:paddingRight="0dp"
+                app:itemBackground="?colorPrimary"
+                app:itemIconTint="@drawable/bottom_navigation_selector"
+                app:itemTextColor="@drawable/bottom_navigation_selector"
+                app:labelVisibilityMode="labeled"
+                app:menu="@menu/main" />
+    </LinearLayout>
+
+    <com.leinardi.android.speeddial.SpeedDialOverlayLayout
+            android:id="@+id/overlay"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:background="@android:color/transparent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
     <com.leinardi.android.speeddial.SpeedDialView
             android:id="@+id/speedDial"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|end"
-            app:layout_constraintBottom_toTopOf="@id/bottomView"
+            app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:sdMainFabClosedSrc="@drawable/ic_baseline_more_vert_24"
-            app:sdMainFabClosedIconColor="@color/colorPrimary"/>
+            app:sdMainFabClosedIconColor="@color/colorPrimary"
+            app:sdOverlayLayout="@id/overlay" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

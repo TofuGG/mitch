@@ -11,8 +11,10 @@ import garden.appl.mitch.NOTIFICATION_TAG_DOWNLOAD_LONG
 import garden.appl.mitch.Utils
 import garden.appl.mitch.database.AppDatabase
 import garden.appl.mitch.install.Installations
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * This is an internal receiver which only receives broadcasts when clicking "Cancel"
@@ -23,6 +25,10 @@ class DownloadCancelBroadcastReceiver : BroadcastReceiver() {
         private const val LOGGING_TAG = "DownloadCancelReceiver"
 
         const val EXTRA_DOWNLOAD_ID = "DOWNLOAD_ID"
+
+        // The DB lookup and file cleanup must not block the main thread inside onReceive;
+        // keep the broadcast alive with goAsync() until the background work is done.
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -36,10 +42,15 @@ class DownloadCancelBroadcastReceiver : BroadcastReceiver() {
         else
             notificationManager.cancel(NOTIFICATION_TAG_DOWNLOAD_LONG, downloadId.toInt())
 
-        runBlocking(Dispatchers.IO) {
-            val db = AppDatabase.getDatabase(context)
-            db.installDao.getPendingInstallationByDownloadId(downloadId)?.let {
-                Installations.cancelPending(context, it)
+        val pendingResult = goAsync()
+        scope.launch {
+            try {
+                val db = AppDatabase.getDatabase(context)
+                db.installDao.getPendingInstallationByDownloadId(downloadId)?.let {
+                    Installations.cancelPending(context, it)
+                }
+            } finally {
+                pendingResult.finish()
             }
         }
     }

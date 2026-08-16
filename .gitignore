@@ -2,7 +2,7 @@ keystore.properties
 signing.keystore
 key/
 local.properties
-# Local-only commit conventions
+# Local-only commit conventions (Changes.txt stays tracked and is synced to GitHub)
 AGENTS.md
 .gitmessage
 *.iml

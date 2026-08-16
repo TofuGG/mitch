@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -55,6 +56,7 @@ import garden.appl.mitch.PREF_BROWSE_GENRES_FILTER
 import garden.appl.mitch.PREF_BROWSE_LAST_SCROLL
 import garden.appl.mitch.PREF_BROWSE_LAST_URL
 import garden.appl.mitch.PREF_BROWSE_TAGS_FILTER
+import garden.appl.mitch.PREF_BOTTOM_NAV_ALWAYS_VISIBLE
 import garden.appl.mitch.PREF_DEBUG_WEB_GAMES_IN_BROWSE_TAB
 import garden.appl.mitch.PREF_DESKTOP_MODE
 import garden.appl.mitch.PREF_GENRE_EXCLUSION_ENABLED
@@ -115,6 +117,26 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
     private var browseHandler: ItchBrowseHandler? = null
     private var currentDoc: Document? = null
     private var currentInfo: ItchBrowseHandler.Info? = null
+
+    /**
+     * True while a page load is in flight. Used by the scroll-aware bottom-nav auto-hide to
+     * ignore the big programmatic scroll jumps caused by page loads and scroll restoration.
+     */
+    private var pageLoading = false
+
+    /**
+     * True while a remembered scroll position is being programmatically restored. The restore
+     * loop keeps retrying after [pageLoading] is cleared (catalogue pages grow in batches),
+     * so the scroll listener must ignore those programmatic jumps too.
+     */
+    private var scrollRestoring = false
+
+    /**
+     * Cached value of the "keep the bottom navigation bar always visible" preference. Cached
+     * here instead of reading SharedPreferences on every scroll event, which is a disk-backed
+     * read per event; refreshed from [onResume] and [onHiddenChanged].
+     */
+    private var bottomNavAlwaysVisible = false
 
     /**
      * Vertical scroll position remembered per page URL, so going back from a game page
@@ -216,12 +238,23 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 
         applyDesktopModeUserAgent()
 
+        updateBottomNavAlwaysVisible()
+
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
             Log.d(LOGGING_TAG, "Requesting download...")
             launch(Dispatchers.IO) {
                 browseHandler?.onDownloadStarted(url, userAgent, contentDisposition, mimeType,
                     if (contentLength > 0) contentLength else null)
             }
+        }
+
+        // Auto-hide the bottom navigation while scrolling the page down, unless the user enabled
+        // "keep the bottom navigation bar always visible". Skip while a page is loading or its
+        // scroll position is being restored, which produce big programmatic scroll jumps.
+        webView.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+            if (pageLoading || scrollRestoring || currentDoc == null) return@setOnScrollChangeListener
+            if (bottomNavAlwaysVisible) return@setOnScrollChangeListener
+            (activity as? MainActivity)?.onContentScrolled(scrollY - oldScrollY)
         }
 
         webView.setOnLongClickListener { _ ->
@@ -489,19 +522,36 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         val targetY = savedScrollPositions.remove(url) ?: return
         if (targetY <= 0)
             return
+        // Keep the scroll listener from reacting to these programmatic jumps: the retries below
+        // fire after onPageFinished cleared pageLoading, and each retry jumps by a large delta.
+        scrollRestoring = true
         var attempt = 0
         val restore = object : Runnable {
             override fun run() {
                 attempt++
-                if (webView.url != url)
+                if (webView.url != url) {
+                    scrollRestoring = false
                     return
+                }
                 webView.scrollTo(0, targetY)
                 if (webView.scrollY < targetY - 10 && attempt < 40) {
                     webView.postDelayed(this, 500)
+                } else {
+                    scrollRestoring = false
                 }
             }
         }
         restore.run()
+    }
+
+    /**
+     * Refreshes the cached [bottomNavAlwaysVisible] flag from preferences. Called when the
+     * fragment becomes visible or resumes, so the scroll listener always honors the latest
+     * setting without paying a SharedPreferences read per scroll event.
+     */
+    private fun updateBottomNavAlwaysVisible() {
+        bottomNavAlwaysVisible = PreferenceManager.getDefaultSharedPreferences(requireContext())
+            .getBoolean(PREF_BOTTOM_NAV_ALWAYS_VISIBLE, false)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -551,9 +601,24 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 
         // Reflect preference changes (e.g. enabling/disabling the scroll-to-top button
         // or the tag exclusion filter) made while another fragment was visible.
+        updateBottomNavAlwaysVisible()
         (activity as? MainActivity)?.binding?.speedDial?.let { speedDial ->
             setupSpeedDialActions(speedDial)
             updateUI()
+        }
+    }
+
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        // The Browse tab is kept alive while other tabs are shown (hidden via hide()/show()),
+        // so its lifecycle stays RESUMED and onResume() does not fire again on tab switches.
+        // Rebuild the speed dial when the tab is shown again so preference changes made in
+        // another tab (e.g. toggling the scroll-to-top/search buttons) take effect.
+        if (!hidden) {
+            updateBottomNavAlwaysVisible()
+            (activity as? MainActivity)?.binding?.speedDial?.let { speedDial ->
+                setupSpeedDialActions(speedDial)
+            }
         }
     }
 
@@ -645,6 +710,10 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         val navBar = mainActivity.binding.bottomNavigationView
         val bottomGameBar = mainActivity.binding.bottomGameBar
         val speedDial = mainActivity.binding.speedDial
+        // When enabled, the bottom navigation bar stays visible on game, creator and
+        // forum pages instead of being hidden; the toggle lives in Settings.
+        val keepBottomNavVisible = PreferenceManager.getDefaultSharedPreferences(requireContext())
+            .getBoolean(PREF_BOTTOM_NAV_ALWAYS_VISIBLE, false)
         val supportAppBar = mainActivity.supportActionBar
             ?: run {
                 Log.e(LOGGING_TAG, "supportActionBar not ready yet, skipping page UI update")
@@ -674,7 +743,8 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
             val navBarHideCallback: (String) -> Unit = navBarHide@{
                 if (!isVisible)
                     return@navBarHide
-                navBar.visibility = View.GONE
+                if (!keepBottomNavVisible)
+                    navBar.visibility = View.GONE
 
                 val actions = ArrayList<Triple<String, Spanned, View.OnClickListener>>()
                 var filesRequirePayment = false
@@ -831,7 +901,8 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
             supportAppBar.show()
 
             bottomGameBar.visibility = View.GONE
-            navBar.visibility = View.GONE
+            if (!keepBottomNavVisible)
+                navBar.visibility = View.GONE
         } else if (doc?.let { ItchWebsiteUtils.isJamOrForumPage(it) } == true) {
             val appBarTitle =
                 "<b>${Html.escapeHtml(ItchWebsiteParser.getForumOrJamName(doc))}</b>"
@@ -842,12 +913,17 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
             supportAppBar.show()
 
             bottomGameBar.visibility = View.GONE
-            navBar.visibility = View.GONE
+            if (!keepBottomNavVisible)
+                navBar.visibility = View.GONE
         } else {
             navBar.visibility = View.VISIBLE
             bottomGameBar.visibility = View.GONE
             supportAppBar.hide()
         }
+
+        // Any page change can leave the nav auto-hidden from a previous page; bring it back so
+        // the content sits above the nav/game bar again instead of a stale hidden state.
+        mainActivity.resetBottomNav()
 
         // Colors adapt to game theme
 
@@ -905,10 +981,25 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         appBar.setTitleTextColor(fgColor)
         appBar.overflowIcon?.setTint(fgColor)
 
-        bottomGameBar.setBackgroundColor(bgColor)
+        // When both the install bar and the bottom navigation bar are visible, slightly
+        // darken the install bar so the two don't read as one continuous bar.
+        val gameBarColor = if (keepBottomNavVisible) Utils.darkenColor(bgColor, 0.15f) else bgColor
+        bottomGameBar.setBackgroundColor(gameBarColor)
         gameButtonInfo.setTextColor(defaultWhiteColor)
         gameButton.setTextColor(accentFgColor)
         gameButton.setBackgroundColor(accentColor)
+
+        // Theme the bottom navigation bar to match the page's game/user theme, the same
+        // way the toolbar and install bar adapt. On pages without a theme these fall back
+        // to the app's default colors, so the look is unchanged there.
+        val navItemColorList = Utils.colorStateListOf(
+            intArrayOf(android.R.attr.state_checked) to accentColor,
+            intArrayOf() to fgColor
+        )
+        navBar.setBackgroundColor(bgColor)
+        navBar.itemBackground = ColorDrawable(bgColor)
+        navBar.itemIconTintList = navItemColorList
+        navBar.itemTextColor = navItemColorList
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             mainActivity.window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
@@ -1578,10 +1669,14 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
                 pendingHistoryClear = false
                 view.clearHistory()
             }
+            // Restore the saved scroll position first, still under the pageLoading guard, so the
+            // auto-hide ignores its programmatic scroll; only then re-enable scroll handling.
             restoreScrollIfNeeded(url)
+            pageLoading = false
         }
 
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+            pageLoading = true
             val prefs = PreferenceManager.getDefaultSharedPreferences(browseFragment.requireContext())
             val hiddenElements = if (prefs.getBoolean(PREF_DEBUG_WEB_GAMES_IN_BROWSE_TAB, false) && BuildConfig.DEBUG)
                 ".purchase_banner, .header_buy_row, .buy_row, .donate_btn"

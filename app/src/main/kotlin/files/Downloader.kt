@@ -1,25 +1,13 @@
 package garden.appl.mitch.files
 
 import android.content.Context
-import android.content.pm.ServiceInfo
+import android.content.Intent
 import android.os.StatFs
 import android.util.Log
-import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.work.BackoffPolicy
-import androidx.work.CoroutineWorker
-import androidx.work.ExistingWorkPolicy
-import androidx.work.ForegroundInfo
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
-import androidx.work.await
-import androidx.work.workDataOf
+import androidx.core.content.ContextCompat
 import garden.appl.mitch.HEADER_UA
 import garden.appl.mitch.Mitch
-import garden.appl.mitch.NOTIFICATION_CHANNEL_ID_INSTALLING
 import garden.appl.mitch.NOTIFICATION_TAG_DOWNLOAD
 import garden.appl.mitch.NOTIFICATION_TAG_DOWNLOAD_LONG
 import tofu.gg.mitchy.R
@@ -33,7 +21,6 @@ import garden.appl.mitch.install.SessionInstaller
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -42,27 +29,16 @@ import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Request
 import okhttp3.Response
-import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.OutputStream
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 object Downloader {
-    private const val WORKER_URL = "url"
-    private const val WORKER_USER_AGENT = "ua"
-    private const val WORKER_DOWNLOAD_DIR = "path"
-    private const val WORKER_FILE_NAME = "file_name"
-    private const val WORKER_DOWNLOAD_OR_INSTALL_ID = "download_id"
-    private const val WORKER_UPLOAD_ID = "upload_id"
-    private const val WORKER_CONTENT_LENGTH = "content_length"
-    private const val TAG_WORKER = "MITCH_DOWN"
-    private const val MAX_RETRY_ATTEMPTS = 20
-
-    private const val LOGGING_TAG = "WorkerDownloader"
+    private const val LOGGING_TAG = "Downloader"
     private val installationListener = InstallationDownloadFileListener()
     private val normalListener = DownloadFileListener()
 
@@ -77,21 +53,26 @@ object Downloader {
         File(File(context.filesDir, "misc_download"), downloadId.toString())
 
     private val unusedDownloadIdMutex = Mutex()
+    private val downloadIdCounter = AtomicLong(Int.MAX_VALUE.toLong())
 
     private suspend fun getUnusedDownloadId(context: Context): Long =
         unusedDownloadIdMutex.withLock {
-            for (i in Int.MAX_VALUE.toLong() + 1..Int.MAX_VALUE.toLong() * 2) {
-                // Use the flow API instead of the ListenableFuture .get(): the player's download
-                // path runs on the main scope, and blocking on a WorkManager future there would ANR.
-                val workInfos = WorkManager.getInstance(context)
-                    .getWorkInfosForUniqueWorkFlow(getWorkName(i)).first()
-                if (workInfos.isEmpty())
-                    return@withLock i
+            val db = AppDatabase.getDatabase(context)
+            var id: Long
+            while (true) {
+                id = downloadIdCounter.incrementAndGet()
+                if (id > Int.MAX_VALUE.toLong() * 2) {
+                    downloadIdCounter.set(Int.MAX_VALUE.toLong())
+                    continue
+                }
+                // Don't collide with an in-flight download or with a pending DB row that a dead
+                // process left behind before the daily cleanup had a chance to remove it.
+                if (DownloadService.isDownloading(id)) continue
+                if (db.installDao.getPendingInstallationByDownloadId(id) != null) continue
+                break
             }
-            throw RuntimeException("Could not find free download ID for DownloaderWorker")
+            id
         }
-
-    private fun getWorkName(downloadId: Long): String = "MITCH_DOWN_$downloadId"
 
     /**
      * @param contentLength file size, null if unknown
@@ -128,257 +109,195 @@ object Downloader {
             db.installDao.upsert(install)
         }
 
-        val downloadRequest =
-            OneTimeWorkRequestBuilder<Worker>().run {
-                setInputData(
-                    workDataOf(
-                        Pair(WORKER_URL, url),
-                        Pair(WORKER_USER_AGENT, userAgent),
-                        Pair(WORKER_CONTENT_LENGTH, contentLength),
-                        Pair(WORKER_DOWNLOAD_DIR, downloadDir?.path),
-                        Pair(WORKER_FILE_NAME, fileName),
-                        Pair(WORKER_DOWNLOAD_OR_INSTALL_ID, id),
-                        Pair(WORKER_UPLOAD_ID, install?.uploadId)
-                    )
-                )
-                addTag(TAG_WORKER)
-                // Run as foreground/expedited work so the OS does not stop the download when
-                // the user switches to another app (STOP_REASON_ESTIMATED_APP_BG). If it still
-                // gets stopped (10-minute background cap, OEM battery savers), doWork retries
-                // instead of failing. https://itch.io/t/5280860/app-doesnt-install-games
-                setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                setBackoffCriteria(BackoffPolicy.LINEAR, 1, TimeUnit.MINUTES)
-                build()
-            }
-
-
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            getWorkName(id),
-            ExistingWorkPolicy.APPEND_OR_REPLACE,
-            downloadRequest
-        )
+        val intent = Intent(context, DownloadService::class.java).apply {
+            action = DownloadService.ACTION_DOWNLOAD
+            putExtra(DownloadService.EXTRA_URL, url)
+            putExtra(DownloadService.EXTRA_USER_AGENT, userAgent)
+            putExtra(DownloadService.EXTRA_DOWNLOAD_DIR, downloadDir?.path)
+            putExtra(DownloadService.EXTRA_FILE_NAME, fileName)
+            if (contentLength != null)
+                putExtra(DownloadService.EXTRA_CONTENT_LENGTH, contentLength)
+            putExtra(DownloadService.EXTRA_DOWNLOAD_OR_INSTALL_ID, id)
+            install?.let { putExtra(DownloadService.EXTRA_UPLOAD_ID, it.uploadId) }
+        }
+        // A real foreground service keeps the download alive while the app is in the background
+        // or removed from the recents screen. WorkManager's expedited workers get stopped there
+        // (background time cap, OEM battery savers) and silently lose the download, leaving a
+        // stale progress notification behind. https://itch.io/t/5280860/app-doesnt-install-games
+        ContextCompat.startForegroundService(context, intent)
     }
 
     suspend fun cancel(context: Context, downloadId: Long): Boolean {
-        val operation = WorkManager.getInstance(context).cancelUniqueWork(getWorkName(downloadId))
-        operation.await()
+        DownloadService.cancel(downloadId)
         return true
     }
 
-    suspend fun checkIsDownloading(context: Context, downloadId: Long): Boolean {
-        // The future's isDone only tells whether the query itself resolved; the actual
-        // "still downloading" signal is a WorkInfo that is enqueued or running. Otherwise
-        // the daily cleanup would never clear rows left in STATUS_DOWNLOADING by a dead process.
-        val workInfos = WorkManager.getInstance(context)
-            .getWorkInfosForUniqueWorkFlow(getWorkName(downloadId)).first()
-        return workInfos.any { workInfo ->
-            workInfo.state == WorkInfo.State.RUNNING || workInfo.state == WorkInfo.State.ENQUEUED
-        }
-    }
+    suspend fun checkIsDownloading(context: Context, downloadId: Long): Boolean =
+        DownloadService.isDownloading(downloadId)
 
     fun cancelAll(context: Context) {
-        WorkManager.getInstance(context).cancelAllWorkByTag(TAG_WORKER)
+        DownloadService.cancelAll()
     }
 
-    class Worker(appContext: Context, params: WorkerParameters) :
-        CoroutineWorker(appContext, params) {
+    /**
+     * Runs a single download, calling the right [DownloadFileListener] callbacks on
+     * completion, error, or cancellation. Executed by [DownloadService]; the caller's
+     * coroutine is cancelled by the user pressing "Cancel" on the progress notification.
+     */
+    suspend fun performDownload(
+        context: Context,
+        url: String,
+        userAgent: String?,
+        downloadDir: String?,
+        fileName: String,
+        contentLength: Long,
+        downloadOrInstallId: Long,
+        uploadId: Int?
+    ) {
+        val downloadType = if (downloadDir == null)
+            DownloadType.INSTALL_SESSION
+        else if (uploadId == null)
+            DownloadType.NORMAL_FILE
+        else if (fileName.endsWith(".apk"))
+            DownloadType.INSTALL_APK
+        else
+            DownloadType.INSTALL_MISC
+        Log.d(LOGGING_TAG, "Download type: $downloadType")
+        val listener = getListener(downloadType)
 
-        override suspend fun getForegroundInfo(): ForegroundInfo {
-            val fileName = inputData.getString(WORKER_FILE_NAME) ?: ""
-            val notification = NotificationCompat.Builder(
-                applicationContext, NOTIFICATION_CHANNEL_ID_INSTALLING
-            ).apply {
-                setSmallIcon(R.drawable.ic_mitch_notification)
-                setContentTitle(fileName)
-                setContentText(applicationContext.getString(R.string.library_item_downloading))
-                setOngoing(true)
-            }.build()
-            return ForegroundInfo(
-                inputData.getLong(WORKER_DOWNLOAD_OR_INSTALL_ID, -1).toInt(),
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        }
+        try {
+            Log.d(LOGGING_TAG, "content length: $contentLength")
+            if (downloadDir != null) {
+                File("${downloadDir}/").mkdirs()
 
-        override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-            val url = inputData.getString(WORKER_URL)!!
-            val userAgent = inputData.getString(WORKER_USER_AGENT)
-            val downloadDir = inputData.getString(WORKER_DOWNLOAD_DIR)
-            val fileName = inputData.getString(WORKER_FILE_NAME)!!
-            val contentLength = inputData.getLong(WORKER_CONTENT_LENGTH, -1)
-            val downloadOrInstallId = inputData.getLong(WORKER_DOWNLOAD_OR_INSTALL_ID, -1)
-            val uploadId = Utils.getInt(inputData, WORKER_UPLOAD_ID)
-
-            val downloadType = if (downloadDir == null)
-                DownloadType.INSTALL_SESSION
-            else if (uploadId == null)
-                DownloadType.NORMAL_FILE
-            else if (fileName.endsWith(".apk"))
-                DownloadType.INSTALL_APK
-            else
-                DownloadType.INSTALL_MISC
-            Log.d(LOGGING_TAG, "Download type: $downloadType")
-            val listener = getListener(downloadType)
-
-            try {
-                Log.d(LOGGING_TAG, "content length: $contentLength")
-                if (downloadDir != null) {
-                    File("${downloadDir}/").mkdirs()
-
-                    if (StatFs(downloadDir).availableBytes <= contentLength)
-                        throw SessionInstaller.NotEnoughSpaceException()
-                }
-
-                val outputStream = if (downloadDir != null) {
-                    val file = File(downloadDir, fileName)
-
-                    FileOutputStream(file, false)
-                } else {
-                    val installer = Installations.getInstaller(downloadOrInstallId)
-
-                    installer.openWriteStream(
-                        applicationContext,
-                        downloadOrInstallId.toInt(),
-                        contentLength
-                    )
-                }
-
-                if (DataURL.isValid(url)) {
-                    listener.onProgress(applicationContext, fileName, downloadOrInstallId, null)
-                    Utils.cancellableCopy(DataURL(url).toInputStream(), outputStream)
-                    listener.onCompleted(applicationContext, fileName, uploadId, downloadOrInstallId, downloadType)
-
-                    return@withContext Result.success()
-                }
-
-                val request = Request.Builder().run {
-                    url(url)
-                    userAgent?.let { header(HEADER_UA, it) }
-                    get()
-                    build()
-                }
-
-                val response = suspendCancellableCoroutine { cont ->
-                    Mitch.httpClient.newCall(request).enqueue(object : Callback {
-                        override fun onFailure(call: Call, e: IOException) {
-                            cont.resumeWithException(e)
-                        }
-
-                        override fun onResponse(call: Call, response: Response) {
-                            //TODO: use experimental API for safer close
-                            cont.invokeOnCancellation {
-                                response.close()
-                            }
-                            cont.resume(response)
-                        }
-                    })
-                }
-
-                    response.use {
-                        listener.onProgress(applicationContext, fileName, downloadOrInstallId, null)
-
-                        outputStream.use {
-                            download(response, it, fileName, downloadOrInstallId, listener)
-                        }
-
-                        // Verify the file wasn't truncated or corrupted while downloading.
-                        // Installing a partial APK would otherwise end in Android's cryptic
-                        // "There was a problem parsing the package" error.
-                        if (downloadDir != null) {
-                            val file = File(downloadDir, fileName)
-                            if (downloadType == DownloadType.INSTALL_APK
-                                || downloadType == DownloadType.INSTALL_MISC) {
-                                if (contentLength > 0 && file.length() != contentLength)
-                                    throw IOException(
-                                        "Download incomplete: got ${file.length()} of $contentLength bytes")
-                                if (downloadType == DownloadType.INSTALL_APK && !Utils.isValidZip(file))
-                                    throw IOException("Downloaded file is not a valid APK")
-                                if (downloadType == DownloadType.INSTALL_MISC && fileName.endsWith(".zip")
-                                    && !Utils.isValidZip(file))
-                                    throw IOException("Downloaded file is not a valid archive")
-                            }
-                        }
-
-                        with(NotificationManagerCompat.from(applicationContext)) {
-                        if (Utils.fitsInInt(downloadOrInstallId))
-                            cancel(NOTIFICATION_TAG_DOWNLOAD, downloadOrInstallId.toInt())
-                        else
-                            cancel(NOTIFICATION_TAG_DOWNLOAD_LONG, downloadOrInstallId.toInt())
-                    }
-
-                    //Add delay because if you send the completion notification
-                    //right after a progress notification, sometimes it doesn't show up
-                    delay(500)
-
-                    listener.onCompleted(applicationContext,
-                            fileName, uploadId, downloadOrInstallId, downloadType)
-                }
-            } catch (_: CancellationException) {
-                // A user cancel cancels the unique work itself, so WorkManager marks it CANCELLED
-                // and ignores any result we return. Every other stop (app backgrounded, process
-                // preempted, foreground time cap) must not silently kill the download — reschedule
-                // it so it resumes the next time the work runs.
-                if (isStopped && runAttemptCount < MAX_RETRY_ATTEMPTS) {
-                    Log.d(LOGGING_TAG, "Download $downloadOrInstallId stopped mid-run, " +
-                        "rescheduling (attempt ${runAttemptCount + 1})")
-                    Result.retry()
-                } else {
-                    listener.onCancel(applicationContext, downloadOrInstallId)
-                    Result.failure()
-                }
-            } catch (e: Exception) {
-                // The response is closed by invokeOnCancellation while we're being stopped, which
-                // can race the copy loop and surface as an IOException instead of a cancellation.
-                // Treat that like a stop, not an error.
-                if (isStopped) {
-                    if (runAttemptCount < MAX_RETRY_ATTEMPTS) {
-                        Log.d(LOGGING_TAG, "Download $downloadOrInstallId interrupted while " +
-                            "stopping, rescheduling (attempt ${runAttemptCount + 1})")
-                        Result.retry()
-                    } else {
-                        listener.onCancel(applicationContext, downloadOrInstallId)
-                        Result.failure()
-                    }
-                } else {
-                    Log.e(LOGGING_TAG, "Caught while downloading", e)
-                    val errorName = when (e) {
-                        is SessionInstaller.NotEnoughSpaceException ->
-                            if (fileName.endsWith(".apk"))
-                                R.string.dialog_installer_no_space
-                            else
-                                R.string.notification_download_no_space
-                        is IOException -> R.string.notification_download_io_error
-                        else -> R.string.notification_download_unknown_error
-                    }
-                    listener.onError(
-                        applicationContext, fileName, uploadId, downloadOrInstallId, downloadType,
-                        e.localizedMessage ?: applicationContext.getString(errorName), e
-                    )
-                    Result.failure()
-                }
+                if (StatFs(downloadDir).availableBytes <= contentLength)
+                    throw SessionInstaller.NotEnoughSpaceException()
             }
 
-            Result.success()
-        }
+            val outputStream = if (downloadDir != null) {
+                val file = File(downloadDir, fileName)
 
-        private suspend fun download(
-            response: Response, outputStream: OutputStream, fileName: String,
-            downloadId: Long, listener: DownloadFileListener
-        ) = withContext(Dispatchers.IO) {
-            val totalBytes = response.body.contentLength()
-            var progressPercent: Long = 0
+                FileOutputStream(file, false)
+            } else {
+                val installer = Installations.getInstaller(downloadOrInstallId)
 
-            val body = response.body
+                installer.openWriteStream(
+                    context,
+                    downloadOrInstallId.toInt(),
+                    contentLength
+                )
+            }
 
-            BufferedInputStream(body.byteStream()).use { inputStream ->
-                Utils.cancellableCopy(inputStream, outputStream) { bytesRead ->
-                    val currentProgress: Long =
-                        if (totalBytes > 0) 100 * bytesRead / totalBytes else 0
-                    if (currentProgress != progressPercent) {
-                        listener.onProgress(applicationContext,
-                                fileName, downloadId, currentProgress.toInt())
-                        progressPercent = currentProgress
+            if (DataURL.isValid(url)) {
+                listener.onProgress(context, fileName, downloadOrInstallId, null)
+                Utils.cancellableCopy(DataURL(url).toInputStream(), outputStream)
+                listener.onCompleted(context, fileName, uploadId, downloadOrInstallId, downloadType)
+
+                return
+            }
+
+            val request = Request.Builder().run {
+                url(url)
+                userAgent?.let { header(HEADER_UA, it) }
+                get()
+                build()
+            }
+
+            val response = suspendCancellableCoroutine { cont ->
+                Mitch.httpClient.newCall(request).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        cont.resumeWithException(e)
                     }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        //TODO: use experimental API for safer close
+                        cont.invokeOnCancellation {
+                            response.close()
+                        }
+                        cont.resume(response)
+                    }
+                })
+            }
+
+            response.use { response ->
+                listener.onProgress(context, fileName, downloadOrInstallId, null)
+
+                outputStream.use { output ->
+                    download(context, response, output, fileName, downloadOrInstallId, listener)
+                }
+
+                // Verify the file wasn't truncated or corrupted while downloading.
+                // Installing a partial APK would otherwise end in Android's cryptic
+                // "There was a problem parsing the package" error.
+                if (downloadDir != null) {
+                    val file = File(downloadDir, fileName)
+                    if (downloadType == DownloadType.INSTALL_APK
+                        || downloadType == DownloadType.INSTALL_MISC) {
+                        if (contentLength > 0 && file.length() != contentLength)
+                            throw IOException(
+                                "Download incomplete: got ${file.length()} of $contentLength bytes")
+                        if (downloadType == DownloadType.INSTALL_APK && !Utils.isValidZip(file))
+                            throw IOException("Downloaded file is not a valid APK")
+                        if (downloadType == DownloadType.INSTALL_MISC && fileName.endsWith(".zip")
+                            && !Utils.isValidZip(file))
+                            throw IOException("Downloaded file is not a valid archive")
+                    }
+                }
+
+                with(NotificationManagerCompat.from(context)) {
+                    if (Utils.fitsInInt(downloadOrInstallId))
+                        cancel(NOTIFICATION_TAG_DOWNLOAD, downloadOrInstallId.toInt())
+                    else
+                        cancel(NOTIFICATION_TAG_DOWNLOAD_LONG, downloadOrInstallId.toInt())
+                }
+
+                //Add delay because if you send the completion notification
+                //right after a progress notification, sometimes it doesn't show up
+                delay(500)
+
+                listener.onCompleted(context,
+                        fileName, uploadId, downloadOrInstallId, downloadType)
+            }
+        } catch (_: CancellationException) {
+            // The user cancelled: DownloadService cancelled this download's job.
+            listener.onCancel(context, downloadOrInstallId)
+        } catch (e: Exception) {
+            Log.e(LOGGING_TAG, "Caught while downloading", e)
+            val errorName = when (e) {
+                is SessionInstaller.NotEnoughSpaceException ->
+                    if (fileName.endsWith(".apk"))
+                        R.string.dialog_installer_no_space
+                    else
+                        R.string.notification_download_no_space
+                is IOException -> R.string.notification_download_io_error
+                else -> R.string.notification_download_unknown_error
+            }
+            listener.onError(
+                context, fileName, uploadId, downloadOrInstallId, downloadType,
+                e.localizedMessage ?: context.getString(errorName), e
+            )
+        }
+    }
+
+    private suspend fun download(
+        context: Context, response: Response, outputStream: OutputStream, fileName: String,
+        downloadId: Long, listener: DownloadFileListener
+    ) = withContext(Dispatchers.IO) {
+        val totalBytes = response.body.contentLength()
+        var progressPercent: Long = 0
+
+        val body = response.body
+
+        // No extra BufferedInputStream: Utils.cancellableCopy already reads through its own
+        // 1 MB buffer, so a second (8 KB) buffering layer would only waste memory.
+        body.byteStream().use { inputStream ->
+            Utils.cancellableCopy(inputStream, outputStream) { bytesRead ->
+                val currentProgress: Long =
+                    if (totalBytes > 0) 100 * bytesRead / totalBytes else 0
+                if (currentProgress != progressPercent) {
+                    listener.onProgress(context,
+                            fileName, downloadId, currentProgress.toInt())
+                    progressPercent = currentProgress
                 }
             }
         }
