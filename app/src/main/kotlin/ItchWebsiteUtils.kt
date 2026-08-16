@@ -239,4 +239,13 @@ object ItchWebsiteUtils {
     fun isGameCataloguePage(uri: Uri): Boolean {
         return uri.pathSegments?.firstOrNull() == "games"
     }
+
+    /**
+     * URL-based check for a game page (https://<developer>.itch.io/<game>). Unlike
+     * [isGamePage], this doesn't need the downloaded page, so it works even when the
+     * WebView was restored without its history (e.g. after the process was killed).
+     */
+    fun isGamePageUrl(uri: Uri): Boolean {
+        return uri.host?.let { it.endsWith(".itch.io") } == true
+    }
 }

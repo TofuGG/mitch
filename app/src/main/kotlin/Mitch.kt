@@ -88,6 +88,14 @@ object PreferenceWebCacheEnable {
 //const val PREF_WEB_CACHE_DIALOG_HIDE = "mitch.web_cache_dialog_hide"
 // Last page the Browse tab was on, so it can be restored after the app process dies.
 const val PREF_BROWSE_LAST_URL = "mitch.browse_last_url"
+// Vertical scroll position of the last page, so the user lands where they left off
+// instead of at the top of the page.
+const val PREF_BROWSE_LAST_SCROLL = "mitch.browse_last_scroll"
+// Rotation the user had before the player forced a game's orientation (and whether
+// auto-rotate was off), so the app can hand the rotation back when the player closes.
+// Some devices (MIUI) keep the game's forced rotation and leave the whole app rotated.
+const val PREF_GAME_RESTORE_ROTATION = "mitch.game_restore_rotation"
+const val PREF_GAME_RESTORE_AUTOROTATE = "mitch.game_restore_autorotate"
 // Client-side genre/tag exclusion filters for catalogue pages, persisted across
 // navigation so they aren't lost when viewing a game and coming back.
 const val PREF_BROWSE_GENRES_FILTER = "mitch.browse_genres_exclusion_filter"
@@ -118,6 +126,17 @@ const val PREF_DESKTOP_MODE = "mitch.browse_desktop_mode"
 const val PREF_SEARCH_ENABLED = "mitch.search_enabled"
 const val PREF_GENRE_EXCLUSION_ENABLED = "mitch.genre_exclusion_enabled"
 const val PREF_TEXT_GAME_FILL = "mitch.text_game_fill"
+
+// Orientation used by the web game player. Overrides the orientation the developer
+// declared on the itch.io embed URL, which is missing for many games and leaves
+// landscape-designed games letterboxed small inside a portrait player.
+const val PREF_WEB_GAME_ORIENTATION = "mitch.web_game_orientation"
+object PrefWebGameOrientation {
+    const val GAME = "game"
+    const val PORTRAIT = "portrait"
+    const val LANDSCAPE = "landscape"
+    const val DEFAULT = GAME
+}
 
 // Browser-data export/import. The import is deferred to the next app launch so the swap
 // happens before any WebView is created (see WebViewDataBackup).

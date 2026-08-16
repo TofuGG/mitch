@@ -10,8 +10,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.provider.Settings
 import android.util.Base64
 import android.util.Log
+import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -23,6 +25,7 @@ import android.webkit.WebView
 import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.Keep
@@ -37,9 +40,13 @@ import androidx.preference.PreferenceManager
 import com.bumptech.glide.Glide
 import garden.appl.mitch.ItchWebsiteUtils
 import garden.appl.mitch.Mitch
+import garden.appl.mitch.PREF_GAME_RESTORE_AUTOROTATE
+import garden.appl.mitch.PREF_GAME_RESTORE_ROTATION
 import garden.appl.mitch.PREF_TEXT_GAME_FILL
 import garden.appl.mitch.PREF_WEB_CACHE_ENABLE
 import garden.appl.mitch.PREF_WEB_CACHE_UPDATE
+import garden.appl.mitch.PREF_WEB_GAME_ORIENTATION
+import garden.appl.mitch.PrefWebGameOrientation
 import garden.appl.mitch.PreferenceWebCacheEnable
 import garden.appl.mitch.PreferenceWebCacheUpdate
 import tofu.gg.mitchy.R
@@ -58,6 +65,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
@@ -70,6 +78,47 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
         const val EXTRA_GAME_ID = "GAME_ID"
         const val EXTRA_LAUNCHED_FROM_INSTALL = "IS_OFFLINE"
         private const val WEB_VIEW_STATE_KEY: String = "WebView"
+
+        /**
+         * Replaces a game's service worker with a no-op so every request flows back through
+         * `shouldInterceptRequest` / `WebGameCache`. Some itch.io games ship a PWA service
+         * worker (Godot exports especially) whose responses are served outside Mitch's
+         * network layer, so the game can render as raw HTML source ("html code in tiny
+         * font") and is never cached for offline play. The shim keeps a registration alive
+         * (so the page's own `register()` call doesn't fight us) but installs with no
+         * `fetch` handler, so requests go through the regular network stack where Mitch's
+         * cache applies. It claims the page and reloads it once so the stale SW-served copy
+         * is replaced immediately instead of on the next launch.
+         */
+        private val SW_DISABLE_SHIM = """
+            self.addEventListener('install', (event) => {
+                self.skipWaiting();
+            });
+            self.addEventListener('activate', (event) => {
+                event.waitUntil((async () => {
+                    await self.clients.claim();
+                    try {
+                        const cache = await caches.open('mitch-sw-shim');
+                        if ((await cache.match('mitch-sw-shim-done')) == null) {
+                            await cache.put('mitch-sw-shim-done', new Response('1'));
+                            const clients = await self.clients.matchAll({ includeUncontrolled: false });
+                            for (const client of clients) {
+                                client.navigate(client.url).catch(() => {});
+                            }
+                        }
+                    } catch (error) {}
+                })());
+            });
+        """.trimIndent()
+
+        /** True for service-worker script URLs, but not plain web workers. */
+        private fun isServiceWorkerScript(path: String): Boolean {
+            val p = path.lowercase()
+            return p.contains("service.worker")
+                || p.endsWith("service-worker.js")
+                || p.endsWith("/sw.js")
+                || p == "sw.js"
+        }
 
         fun getShortcutId(gameId: Int) = "web_game/${gameId}"
 
@@ -148,6 +197,27 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
 
     private var isOfflineMode: Boolean = false
     private var isCaching: Boolean = false
+
+    /**
+     * The game currently loaded in the player, used to re-apply the screen orientation on
+     * every resume (so a preference change or an activity restore takes effect immediately
+     * instead of only on the next fresh launch).
+     */
+    private var gameToOrient: Game? = null
+
+    /**
+     * Display rotation the user had before the player forced the game's orientation.
+     * Some devices (MIUI) keep the forced rotation after the player closes instead of
+     * returning to the user's, so we record it and restore it when the activity finishes.
+     * -1 until a game actually forces an orientation.
+     */
+    private var rotationBeforeGame: Int = -1
+
+    /**
+     * Whether auto-rotate was off when the game forced an orientation. Only then does the
+     * app itself have to hand the rotation back; with auto-rotate on the sensor does it.
+     */
+    private var autorotateBeforeGame: Boolean = true
 
     private val connection = object : ServiceConnection {
         //NO-OP, we bind to a foreground service so that Android does not kill us
@@ -271,6 +341,24 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
                 showLaunchDialog()
             }
         }
+
+        // Handle back through the dispatcher instead of overriding onBackPressed(), so
+        // the system predictive back animation works. The player first exits fullscreen
+        // and walks the game's own WebView history; only when the game can't go back
+        // does it ask the user whether they want to leave.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (chromeClient.isFullscreen()) {
+                    chromeClient.onHideCustomView()
+                    return
+                }
+                if (webView.canGoBack()) {
+                    webView.goBack()
+                    return
+                }
+                showExitDialog()
+            }
+        })
     }
 
     /**
@@ -326,6 +414,20 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
         super.onResume()
 //        webView.resumeTimers()
         webView.onResume()
+        val game = gameToOrient
+        if (game != null) {
+            applyGameOrientation(game)
+        } else {
+            launch {
+                val gameId = intent.getIntExtra(EXTRA_GAME_ID, -1)
+                AppDatabase.getDatabase(this@GameActivity)
+                    .gameDao.getGameByIdSync(gameId)
+                    ?.let { loaded ->
+                        gameToOrient = loaded
+                        applyGameOrientation(loaded)
+                    }
+            }
+        }
     }
 
     private suspend fun showLaunchDialog() {
@@ -463,6 +565,7 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
             finish()
             return
         }
+        gameToOrient = game
         applyGameOrientation(game)
         // itch.io's embed iframe carries an inline pixel height, so text games (Twine &
         // friends) would otherwise render as a tiny strip instead of filling the player.
@@ -505,17 +608,86 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
     /**
      * Rotates the player to the orientation the developer declared for the web game (itch.io
      * encodes it as the `orientation` query parameter on the embed URL, e.g. landscape_left).
-     * Games without a declared orientation are left untouched so adaptive/portrait games keep
-     * their current behavior. The activity handles configChanges, so rotating does not reload
-     * or restart the running game.
+     * A declared orientation always wins, so portrait-designed games keep running portrait.
+     * Games without a declaration are left untouched by default; the "Web game orientation"
+     * setting lets the user force an orientation for exactly those games (otherwise
+     * landscape-designed games run letterboxed small inside a portrait player).
+     * The activity handles configChanges, so rotating does not reload or restart the game.
      */
     private fun applyGameOrientation(game: Game) {
-        requestedOrientation = when (Utils.parseWebGameOrientation(game.webEntryPoint)) {
-            "landscape", "landscape_left" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            "landscape_right" -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
-            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            else -> return
+        when (Utils.parseWebGameOrientation(game.webEntryPoint)) {
+            "landscape", "landscape_left" -> {
+                rememberRotationBeforeGame()
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                Log.d(LOGGING_TAG, "Game orientation: landscape (declared)")
+                return
+            }
+            "landscape_right" -> {
+                rememberRotationBeforeGame()
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+                Log.d(LOGGING_TAG, "Game orientation: reverse landscape (declared)")
+                return
+            }
+            "portrait" -> {
+                rememberRotationBeforeGame()
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                Log.d(LOGGING_TAG, "Game orientation: portrait (declared)")
+                return
+            }
+            else -> {}
         }
+        val forced = PreferenceManager.getDefaultSharedPreferences(this)
+            .getString(PREF_WEB_GAME_ORIENTATION, PrefWebGameOrientation.DEFAULT)
+        requestedOrientation = when (forced) {
+            PrefWebGameOrientation.PORTRAIT -> {
+                rememberRotationBeforeGame()
+                Log.d(LOGGING_TAG, "Game orientation: portrait (forced by setting)")
+                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
+            PrefWebGameOrientation.LANDSCAPE -> {
+                rememberRotationBeforeGame()
+                Log.d(LOGGING_TAG, "Game orientation: landscape (forced by setting)")
+                ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            }
+            else -> {
+                Log.d(LOGGING_TAG, "Game orientation: unspecified (no declaration, setting off)")
+                return
+            }
+        }
+    }
+
+    /**
+     * Records the display rotation the user had before the player forced one, so it can
+     * be restored when the game closes. Only the first recording counts: re-applying the
+     * orientation on later resumes must not overwrite it with the game's own rotation.
+     */
+    @Suppress("DEPRECATION")
+    private fun rememberRotationBeforeGame() {
+        if (rotationBeforeGame >= 0)
+            return
+        rotationBeforeGame = windowManager.defaultDisplay.rotation
+        // Auto-rotate off means the display will only come back if the app itself
+        // restores the rotation; with auto-rotate on the sensor does it on its own.
+        autorotateBeforeGame = Settings.System.getInt(
+            contentResolver, Settings.System.ACCELEROMETER_ROTATION, 1
+        ) == 1
+    }
+
+    /**
+     * Hands the user's pre-game rotation back to the app when the player closes. Devices
+     * like MIUI keep the rotation the game forced (and even change the global rotation
+     * setting), so a plain finish() would leave the rest of the app stuck in
+     * landscape/portrait. The rotation is persisted for [MainActivity] to apply on
+     * resume, because the player window alone cannot change the display back.
+     */
+    private fun restoreOrientationThenFinish() {
+        if (rotationBeforeGame >= 0) {
+            PreferenceManager.getDefaultSharedPreferences(this).edit()
+                .putInt(PREF_GAME_RESTORE_ROTATION, rotationBeforeGame)
+                .putBoolean(PREF_GAME_RESTORE_AUTOROTATE, autorotateBeforeGame)
+                .apply()
+        }
+        finish()
     }
 
     override fun onPause() {
@@ -536,24 +708,15 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
         super.onDestroy()
     }
 
-    override fun onBackPressed() {
-        if (chromeClient.isFullscreen()) {
-            chromeClient.onHideCustomView()
-            return
-        }
-        if (webView.canGoBack()) {
-            webView.goBack()
-        } else {
-            val dialog = AlertDialog.Builder(this).apply {
-                setMessage(R.string.popup_web_game_exit)
-                setPositiveButton(R.string.dialog_yes) { _, _ ->
-                    super.onBackPressed()
-                }
-                setNegativeButton(R.string.dialog_no) { _, _ -> /* NO-OP */ }
-                setCancelable(true)
+    private fun showExitDialog() {
+        AlertDialog.Builder(this).apply {
+            setMessage(R.string.popup_web_game_exit)
+            setPositiveButton(R.string.dialog_yes) { _, _ ->
+                restoreOrientationThenFinish()
             }
-            dialog.show()
-        }
+            setNegativeButton(R.string.dialog_no) { _, _ -> /* NO-OP */ }
+            setCancelable(true)
+        }.show()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -678,6 +841,15 @@ class GameActivity : MitchActivity(), CoroutineScope by MainScope() {
         ): WebResourceResponse? {
             if (request.url.scheme != "http" && request.url.scheme != "https")
                 return super.shouldInterceptRequest(view, request)
+            if (isServiceWorkerScript(request.url.encodedPath.orEmpty())) {
+                // Replace the game's service worker with a no-op shim so requests are
+                // handled by WebGameCache instead of the SW (which can serve the page as
+                // raw HTML source and bypasses offline caching entirely).
+                return WebResourceResponse(
+                    "application/javascript", "UTF-8", 200, "OK", null,
+                    ByteArrayInputStream(SW_DISABLE_SHIM.toByteArray(Charsets.UTF_8))
+                )
+            }
             if (!request.method.equals("GET", ignoreCase = true))
                 return super.shouldInterceptRequest(view, request)
             if (!this@GameActivity.isCaching)

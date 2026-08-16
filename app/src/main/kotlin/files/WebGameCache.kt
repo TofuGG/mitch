@@ -16,6 +16,8 @@ import okhttp3.CacheControl
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Headers.Companion.toHeaders
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -24,20 +26,23 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.SequenceInputStream
-import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 class WebGameCache(context: Context) {
     companion object {
         private const val LOGGING_TAG = "WebGameCache"
 
+        private const val CACHE_BUSTER_PARAM = "mitchy"
+
         // Query parameter names itch.io and friends use for cache busting (e.g. ?v=123).
         // They don't change what the URL returns, but they DO change OkHttp's cache key, so a
         // drifted version would miss when playing offline. We strip them for fallback lookups.
+        // "mitchy" is the marker we append to every request (see withCacheBuster): some links
+        // truncate responses served for exact URLs (e.g. ISP-level filtering), and a harmless
+        // extra query parameter makes the transfer go through undamaged.
         private val CACHE_BUSTER_PARAM_NAMES =
-            setOf("v", "t", "cache", "timestamp", "_", "ver", "version")
+            setOf("v", "t", "cache", "timestamp", "_", "ver", "version", "mitchy")
 
         // Don't prefetch the unversioned copy of a document bigger than this: self-contained
         // exports (wasm inlined as data URIs) can be tens of megabytes and aren't worth doubling.
@@ -53,10 +58,13 @@ class WebGameCache(context: Context) {
         request: WebResourceRequest,
         isOfflineMode: Boolean
     ): WebResourceResponse? = withContext(Dispatchers.IO) {
-        val url = request.url.toString()
-//        Utils.logDebug(LOGGING_TAG, "$url, force cache?: $isOfflineMode")
         val httpRequest = Request.Builder().run {
-            url(url)
+            // Append a stable marker param to every request. Some networks truncate transfers
+            // served for an exact URL (verified: optimization.pck died at ~7.1 MB, while the
+            // same file fetched as optimization.pck?mitchy=1 downloaded fully), so give the
+            // request a URL the filter doesn't match. The server ignores the parameter and
+            // serves the same file, and the marker keeps the OkHttp cache key stable.
+            url(withCacheBuster(request.url.toString().toHttpUrl()))
             headers(request.requestHeaders.toHeaders())
             get()
             build()
@@ -67,6 +75,32 @@ class WebGameCache(context: Context) {
     }
 
     private suspend fun request(httpClient: OkHttpClient, request: Request, forceCache: Boolean): WebResourceResponse? {
+        val response = doFetch(httpClient, request, forceCache)
+        Utils.logDebug(LOGGING_TAG, "${if (forceCache) "offline" else "online"} ${request.url}: " +
+            "${response?.mimeType ?: "MISS"}")
+
+        return when {
+            response != null -> response
+            !forceCache -> request(httpClient, request, forceCache = true)
+            else -> {
+                // Offline (force-cache) miss: try the network once so the response is both served
+                // and stored, populating the cache on the first online run after the SW shim is
+                // installed. Only falls back to the stripped-URL lookup if there's no network.
+                val fromNetwork = doFetch(httpClient, request, forceCache = false)
+                if (fromNetwork != null)
+                    fromNetwork
+                else {
+                    val stripped = stripCacheBuster(request)
+                    if (stripped != null)
+                        request(httpClient, stripped, forceCache = true)
+                    else
+                        null
+                }
+            }
+        }
+    }
+
+    private suspend fun doFetch(httpClient: OkHttpClient, request: Request, forceCache: Boolean): WebResourceResponse? {
         val httpRequest = request.newBuilder().apply {
             // OkHttp's cache cannot store or serve ranged responses, and Godot/Emscripten issue
             // ranged fetches (instantiateStreaming) for the wasm. Serving the whole body to a
@@ -98,10 +132,10 @@ class WebGameCache(context: Context) {
         val response = suspendCancellableCoroutine { continuation ->
             httpClient.newCall(httpRequest).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    if (e is UnknownHostException)
-                        continuation.resume(null)
-                    else
-                        continuation.resumeWithException(e)
+                    // Treat any network failure (timeouts included) as a miss: the WebView then
+                    // falls back to its own network path. Propagating e.g. SocketTimeoutException
+                    // would crash the app from inside shouldInterceptRequest.
+                    continuation.resume(null)
                 }
 
                 override fun onResponse(call: Call, response: Response) {
@@ -133,12 +167,12 @@ class WebGameCache(context: Context) {
                         .mapValues { kvp -> kvp.value.joinToString(separator = ",") }
                         .toMutableMap()
                     if (servedMime != null) {
-                        // Keep the Content-Type header consistent with the mimeType we pass, so
-                        // WebView can't render a document as raw text because of a stale/odd type.
-                        responseHeaders["content-type"] = if (servedEncoding != null)
-                            "$servedMime; charset=$servedEncoding"
-                        else
-                            servedMime
+                        // Let WebView derive the Content-Type from the mimeType/encoding params
+                        // passed to the constructor. If we also keep a Content-Type header here,
+                        // WebView emits it duplicated ("text/html, text/html; charset=UTF-8"),
+                        // which Chrome parses as the malformed type "text/html," and then renders
+                        // the document's source as plain text instead of as a page.
+                        responseHeaders.remove("content-type")
                     }
 
                     continuation.resume(
@@ -154,20 +188,7 @@ class WebGameCache(context: Context) {
                 }
             })
         }
-        Utils.logDebug(LOGGING_TAG, "${if (forceCache) "offline" else "online"} ${request.url}: " +
-            "${response?.mimeType ?: "MISS"}")
-
-        return when {
-            response != null -> response
-            !forceCache -> request(httpClient, request, forceCache = true)
-            else -> {
-                val stripped = stripCacheBuster(request)
-                if (stripped != null)
-                    request(httpClient, stripped, forceCache = true)
-                else
-                    null
-            }
-        }
+        return response
     }
 
     /**
@@ -220,6 +241,12 @@ class WebGameCache(context: Context) {
             else -> null
         }
     }
+
+    /**
+     * Appends the stable marker param to a URL. See CACHE_BUSTER_PARAM for why.
+     */
+    private fun withCacheBuster(url: HttpUrl): HttpUrl =
+        url.newBuilder().addQueryParameter(CACHE_BUSTER_PARAM, "1").build()
 
     private fun stripCacheBuster(request: Request): Request? {
         val url = request.url
@@ -285,6 +312,11 @@ class WebGameCache(context: Context) {
             val cacheDir = getCacheDir(gameId)
             Utils.logDebug(LOGGING_TAG, "new client; cache dir: $cacheDir")
             Mitch.httpClient.newBuilder().let {
+                // Web games stream multi-megabyte bodies (wasm, pck, content packs) over
+                // whatever link the user is on; the default 10s read timeout kills big
+                // downloads on slow connections, so give the web-game client more slack.
+                it.readTimeout(60, TimeUnit.SECONDS)
+                it.connectTimeout(30, TimeUnit.SECONDS)
                 it.cache(Cache(cacheDir, Long.MAX_VALUE))
                 it.build()
             }

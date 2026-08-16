@@ -48,6 +48,13 @@
                 android:key="mitch.text_game_fill"
                 android:summary="@string/settings_text_game_fill_desc"
                 android:title="@string/settings_text_game_fill" />
+        <ListPreference
+                android:defaultValue="game"
+                android:entries="@array/pref_web_orientation_entries"
+                android:entryValues="@array/pref_web_orientation_values"
+                android:key="mitch.web_game_orientation"
+                android:summary="%s"
+                android:title="@string/settings_web_orientation" />
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/settings_category_updater">
         <SwitchPreference

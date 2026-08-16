@@ -1,19 +1,25 @@
 package garden.appl.mitch.ui
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.Surface
 import android.view.View
 import android.view.WindowManager
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentTransaction
+import androidx.preference.PreferenceManager
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import garden.appl.mitch.ItchWebsiteUtils
+import garden.appl.mitch.PREF_GAME_RESTORE_AUTOROTATE
+import garden.appl.mitch.PREF_GAME_RESTORE_ROTATION
 import tofu.gg.mitchy.R
 import garden.appl.mitch.Utils
 import garden.appl.mitch.database.AppDatabase
@@ -57,6 +63,29 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
 
         //Add app bar, hidden by default
         setSupportActionBar(binding.toolbar)
+
+        // Handle back through the dispatcher instead of overriding onBackPressed(), so
+        // the system predictive back animation works. The Browse tab intercepts back to
+        // navigate its WebView history first; anything it doesn't handle (or a different
+        // tab) falls through to the default back behavior (finish / fragment back stack).
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                // `browseFragment` is assigned after this callback is registered; guard
+                // against a back press arriving on a slow first frame.
+                val browseHandled = ::browseFragment.isInitialized
+                    && browseFragment.isVisible
+                    && !browseFragment.onBackPressed()
+                if (browseHandled)
+                    return
+                // Delegate to the default back behavior (finish / fragment back stack).
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+                // Re-enable so future back presses still route through the Browse tab;
+                // the re-dispatch above either finished the activity or popped a
+                // back-stack entry, and the callback must stay usable either way.
+                isEnabled = true
+            }
+        })
         supportActionBar!!.hide()
 
 
@@ -148,18 +177,30 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
         }
     }
 
-    override fun onBackPressed() {
-        if (browseFragment.isVisible) {
-            val cantGoBack = browseFragment.onBackPressed()
-            if (cantGoBack)
-                finish()
-            return
+    override fun onResume() {
+        super.onResume()
+        // The game player persisted the user's pre-game rotation when it closed, because
+        // some devices (MIUI) keep the rotation the game forced. Apply it here — the
+        // player window alone can't change the display back. Only applied when auto-rotate
+        // was off, so sensor users are never locked to one rotation.
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        val rotation = prefs.getInt(PREF_GAME_RESTORE_ROTATION, -1)
+        if (rotation >= 0) {
+            val autoRotateWasOff = !prefs.getBoolean(PREF_GAME_RESTORE_AUTOROTATE, true)
+            prefs.edit()
+                .remove(PREF_GAME_RESTORE_ROTATION)
+                .remove(PREF_GAME_RESTORE_AUTOROTATE)
+                .apply()
+            if (autoRotateWasOff) {
+                requestedOrientation = when (rotation) {
+                    Surface.ROTATION_90 -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    Surface.ROTATION_180 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+                    Surface.ROTATION_270 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+                    else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                }
+            }
         }
-        //super method handles fragment back stack
-        super.onBackPressed()
     }
-
-
 
     override fun onDestroy() {
         super.onDestroy()

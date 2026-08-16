@@ -62,22 +62,23 @@ android {
         // commit message, e.g. "release 2.3.4"), or falls back to the default below.
         val releaseVersionName = (project.findProperty("versionName") as? String) ?: "2.3.3"
         versionName = releaseVersionName
-        // Derive a monotonic version code from the version name, e.g. "2.3.4" -> 20304, so
-        // version bumps stay installable as upgrades. Pre-release suffixes are folded in:
-        // "2.3.8-beta" -> 20308, "2.3.8-beta2" -> 203082, so each pre-release build is a strict
-        // upgrade over the previous one. Falls back to the default code when the
-        // name isn't a <major>.<minor>.<patch> number.
+        // Derive a monotonic version code from the version name, e.g. "2.3.4" -> 203040, so
+        // version bumps stay installable as upgrades. The trailing digit is reserved for
+        // pre-release suffixes: "2.3.8" -> 203080, "2.3.8-beta" -> 203081, "2.3.8-beta2" ->
+        // 203082. Keeping pre-releases below the stable release means a later final version
+        // (e.g. "2.3.9" -> 203090) is always a strict upgrade over every earlier pre-release.
+        // Falls back to the default code when the name isn't a <major>.<minor>.<patch> number.
         versionCode = run {
             val parts = releaseVersionName.trimStart('v').split('.').take(3)
             val numbers = parts.map { it.substringBefore('-').toIntOrNull() }
             if (numbers.size == 3 && numbers.all { it != null }) {
-                val base = numbers[0]!! * 10000 + numbers[1]!! * 100 + numbers[2]!!
-                // Append the pre-release build number (e.g. "-beta2" -> 2), if present.
+                val base = numbers[0]!! * 100000 + numbers[1]!! * 1000 + numbers[2]!! * 10
+                // Add the pre-release build number (e.g. "-beta2" -> 2), if present.
                 val suffixNumber = Regex("-(?:beta|alpha|rc)?(\\d+)").find(parts[2])
                     ?.groupValues?.get(1)?.toIntOrNull()
-                if (suffixNumber != null) base * 10 + suffixNumber else base
+                if (suffixNumber != null) base + suffixNumber else base
             } else {
-                20303
+                203030
             }
         }
     }

@@ -199,6 +199,11 @@
     <string name="settings_genre_exclusion_enabled_desc">Lets you exclude whole genres from Browse catalogue pages.</string>
     <string name="settings_text_game_fill">Fill player with text games</string>
     <string name="settings_text_game_fill_desc">Makes text-based games (Twine and similar) fill the whole player instead of a thin strip.</string>
+    <string name="settings_web_orientation">Web game orientation</string>
+    <string name="settings_web_orientation_desc">Orientation used by games that don\'t declare their own. Games with a declared orientation always keep it, so portrait games stay portrait.</string>
+    <string name="settings_web_orientation_game">Follow the game\'s choice</string>
+    <string name="settings_web_orientation_portrait">Always portrait</string>
+    <string name="settings_web_orientation_landscape">Always landscape</string>
     <string name="settings_lang_default">Default</string>
     <string name="settings_lang_site">Depends on site</string>
     <string name="settings_lang_system">Depends on system</string>

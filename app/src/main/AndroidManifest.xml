@@ -41,6 +41,7 @@
             android:name="garden.appl.mitch.Mitch"
             android:supportsRtl="true"
             android:theme="@style/AppTheme"
+            android:enableOnBackInvokedCallback="true"
             android:hardwareAccelerated="true">
 
         <!-- https://developer.android.com/guide/webapps/webview-privacy -->

@@ -52,6 +52,7 @@ import com.leinardi.android.speeddial.SpeedDialView.OnChangeListener
 import tofu.gg.mitchy.BuildConfig
 import garden.appl.mitch.ItchWebsiteUtils
 import garden.appl.mitch.PREF_BROWSE_GENRES_FILTER
+import garden.appl.mitch.PREF_BROWSE_LAST_SCROLL
 import garden.appl.mitch.PREF_BROWSE_LAST_URL
 import garden.appl.mitch.PREF_BROWSE_TAGS_FILTER
 import garden.appl.mitch.PREF_DEBUG_WEB_GAMES_IN_BROWSE_TAB
@@ -83,6 +84,7 @@ import kotlinx.coroutines.launch
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.security.SecureRandom
+import java.util.HashMap
 import java.util.Locale
 
 
@@ -114,6 +116,14 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
     private var currentDoc: Document? = null
     private var currentInfo: ItchBrowseHandler.Info? = null
 
+    /**
+     * Vertical scroll position remembered per page URL, so going back from a game page
+     * lands where the user left off instead of at the top of the list. WebView's own
+     * history usually restores scroll position, but itch.io catalogue pages reload on
+     * back-navigation and reset to the top, so we save/restore it ourselves.
+     */
+    private val savedScrollPositions = HashMap<String, Int>()
+
     val isWebFullscreen: Boolean
         get() = chromeClient.customViewCallback != null
     val url: String?
@@ -142,6 +152,11 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         filePathCallback = null
     }
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
+
+    // True right after the back-on-game-page fallback: the next finished load is the start
+    // page we escaped to, and its history must be cleared so back can't loop back into the
+    // game page (the fallback loadUrl would otherwise leave the game page in the stack).
+    private var pendingHistoryClear = false
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -382,8 +397,13 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 
         // Load page, this will also update the UI
         val webViewBundle = savedInstanceState?.getBundle(WEB_VIEW_STATE_KEY)
-        val lastUrl = PreferenceManager.getDefaultSharedPreferences(requireContext())
-            .getString(PREF_BROWSE_LAST_URL, null)
+        val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        val lastUrl = prefs.getString(PREF_BROWSE_LAST_URL, null)
+        // When the last page is reloaded from scratch after a process kill, its history is
+        // gone; seed the scroll map so the reload restores the position the user was at.
+        val lastScroll = prefs.getInt(PREF_BROWSE_LAST_SCROLL, 0)
+        if (lastUrl != null && lastScroll > 0)
+            savedScrollPositions[lastUrl] = lastScroll
         Utils.logDebug(LOGGING_TAG, "Restoring $webViewBundle (last URL: $lastUrl)")
         if (webViewBundle != null) {
             webView.restoreState(webViewBundle)
@@ -412,10 +432,76 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         }
 
         if (webView.canGoBack()) {
+            rememberCurrentScroll()
             webView.goBack()
             return false
         }
+
+        // After a process restart the WebView can be sitting on a game page with an
+        // empty back stack (WebView history is not reliably saved/restored). Exiting
+        // the app then would kick the user out instead of returning them to browsing.
+        val currentUrl = webView.url
+        if (currentUrl != null && ItchWebsiteUtils.isGamePageUrl(Uri.parse(currentUrl))) {
+            // Clear the history after this load lands (see onPageFinished), so the start
+            // page becomes the history root instead of the game page we're leaving behind.
+            pendingHistoryClear = true
+            loadUrl(ItchWebsiteUtils.getMainBrowsePage(requireContext()))
+            return false
+        }
+
+        // On the Browse start page with no history: a back press while scrolled down
+        // scrolls to the top instead of closing the app. Only the start page gets this;
+        // game pages and other lists keep their existing behavior.
+        if (currentUrl != null && isMainBrowsePage(currentUrl) && webView.scrollY > 1) {
+            webView.scrollTo(0, 0)
+            return false
+        }
         return true
+    }
+
+    /**
+     * @return whether [url] is the configured Browse start page, ignoring the exclude-tag
+     * query parameter and trailing-slash differences.
+     */
+    private fun isMainBrowsePage(url: String): Boolean {
+        val current = Uri.parse(url)
+        val main = Uri.parse(ItchWebsiteUtils.getMainBrowsePage(requireContext()))
+        return current.scheme == main.scheme
+                && current.host == main.host
+                && (current.path ?: "").removeSuffix("/") == (main.path ?: "").removeSuffix("/")
+    }
+
+    /**
+     * Remembers the current page's vertical scroll position under its URL, so the
+     * position can be restored when the user navigates back to the page.
+     */
+    private fun rememberCurrentScroll() {
+        val url = webView.url ?: return
+        savedScrollPositions[url] = webView.scrollY
+    }
+
+    /**
+     * Restores the remembered scroll position for [url] once the page has loaded.
+     * Catalogue pages grow in batches (infinite scroll), so keep retrying until the
+     * document is tall enough to honor the scroll (or give up after a while).
+     */
+    private fun restoreScrollIfNeeded(url: String) {
+        val targetY = savedScrollPositions.remove(url) ?: return
+        if (targetY <= 0)
+            return
+        var attempt = 0
+        val restore = object : Runnable {
+            override fun run() {
+                attempt++
+                if (webView.url != url)
+                    return
+                webView.scrollTo(0, targetY)
+                if (webView.scrollY < targetY - 10 && attempt < 40) {
+                    webView.postDelayed(this, 500)
+                }
+            }
+        }
+        restore.run()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -439,11 +525,13 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         CookieManager.getInstance().flush()
         SessionCookieStore.capture(requireContext())
 
-        // Remember the current page so it can be restored if the process is killed
-        // while the app is in the background (WebView.saveState alone is unreliable).
+        // Remember the current page and its scroll position so both can be restored if
+        // the process is killed while the app is in the background (WebView.saveState
+        // alone is unreliable, and it doesn't survive a process kill).
         webView.url?.let { url ->
             PreferenceManager.getDefaultSharedPreferences(requireContext()).edit()
                 .putString(PREF_BROWSE_LAST_URL, url)
+                .putInt(PREF_BROWSE_LAST_SCROLL, webView.scrollY)
                 .apply()
         }
     }
@@ -1471,12 +1559,26 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         val githubLoginPathRegex = Regex("""^/?(login|sessions)(/.*)?$""")
 
         override fun shouldOverrideUrlLoading(view: WebView, uri: Uri): Boolean {
+            // Remember where the user is on the current page before it navigates away,
+            // so a later back-navigation lands at the same scroll position.
+            rememberCurrentScroll()
             if (uri.host == "github.com"
                 && uri.path?.matches(githubLoginPathRegex) == true) {
                 return false
             }
 
             return super.shouldOverrideUrlLoading(view, uri)
+        }
+
+        override fun onPageFinished(view: WebView, url: String) {
+            super.onPageFinished(view, url)
+            // The back-on-game-page fallback navigated away from a game page; drop the
+            // leftover history so the start page is the root and back exits normally.
+            if (pendingHistoryClear) {
+                pendingHistoryClear = false
+                view.clearHistory()
+            }
+            restoreScrollIfNeeded(url)
         }
 
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {

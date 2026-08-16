@@ -61,7 +61,7 @@ class OwnedGamesActivity : MitchActivity() {
         supportActionBar?.setDisplayShowHomeEnabled(true)
 
         binding.toolbar.setNavigationOnClickListener {
-            onBackPressed()
+            finish()
         }
 
         // get view model
