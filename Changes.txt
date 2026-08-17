@@ -4,6 +4,31 @@ Changelog for **Mitchy** releases published at
 <https://github.com/TofuGG/mitch/releases>. Newest first. Each entry is the
 release message from the matching `release` commit.
 
+## 2.3.95 (2026-08-17)
+
+Changes:
+- Bottom navigation bar auto-hide oscillation fix: the nav bar flickered
+  hide→show→hide when scrolling on the Browse tab because Chromium's layout
+  pass fired a clamped scroll event 100-200 ms after the margin change, which
+  triggered the opposite toggle. Added `suppressScrollFromLayoutChange` flag
+  to suppress layout-induced scroll events during the margin settle, and
+  bumped the toggle cooldown from 200ms to 350ms to break resonance with
+  Chromium's async layout pipeline.
+- Second oscillation path fix: the `@JavascriptInterface` `onResize()` callback
+  fired during the margin change → called `updateUI()` → `resetBottomNav()` →
+  `setBottomNavHidden(false)`, bypassing the scroll suppression guard. Added
+  `suppressScrollFromLayoutChange && !hidden` check in `setBottomNavHidden()`
+  to block this second path during the layout settle window.
+- "Keep navigation bar visible" toggle now only controls game-page visibility
+  (overrides `View.GONE` on game/creator/forum pages). Auto-hide on scroll
+  always works regardless of the toggle state. The toggle's scope was narrowed
+  from suppressing auto-hide on all tabs to only affecting the game-page nav
+  bar hiding logic in BrowseFragment.
+- Game page install/play bar now slides down with the nav bar when auto-hide
+  triggers (both animate `translationY` together), instead of staying in place
+  while the nav slides below it. The 3-dot speed dial FAB is positioned above
+  the install/play bar when the nav is hidden.
+
 ## 2.3.9 (2026-08-16)
 
 Changes:

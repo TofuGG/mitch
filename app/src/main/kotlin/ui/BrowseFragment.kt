@@ -131,19 +131,6 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
      */
     private var scrollRestoring = false
 
-    /**
-     * Cached value of the "keep the bottom navigation bar always visible" preference. Cached
-     * here instead of reading SharedPreferences on every scroll event, which is a disk-backed
-     * read per event; refreshed from [onResume] and [onHiddenChanged].
-     */
-    private var bottomNavAlwaysVisible = false
-
-    /**
-     * Vertical scroll position remembered per page URL, so going back from a game page
-     * lands where the user left off instead of at the top of the list. WebView's own
-     * history usually restores scroll position, but itch.io catalogue pages reload on
-     * back-navigation and reset to the top, so we save/restore it ourselves.
-     */
     private val savedScrollPositions = HashMap<String, Int>()
 
     val isWebFullscreen: Boolean
@@ -238,8 +225,6 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 
         applyDesktopModeUserAgent()
 
-        updateBottomNavAlwaysVisible()
-
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
             Log.d(LOGGING_TAG, "Requesting download...")
             launch(Dispatchers.IO) {
@@ -253,7 +238,6 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         // scroll position is being restored, which produce big programmatic scroll jumps.
         webView.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
             if (pageLoading || scrollRestoring || currentDoc == null) return@setOnScrollChangeListener
-            if (bottomNavAlwaysVisible) return@setOnScrollChangeListener
             (activity as? MainActivity)?.onContentScrolled(scrollY - oldScrollY)
         }
 
@@ -544,16 +528,6 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         restore.run()
     }
 
-    /**
-     * Refreshes the cached [bottomNavAlwaysVisible] flag from preferences. Called when the
-     * fragment becomes visible or resumes, so the scroll listener always honors the latest
-     * setting without paying a SharedPreferences read per scroll event.
-     */
-    private fun updateBottomNavAlwaysVisible() {
-        bottomNavAlwaysVisible = PreferenceManager.getDefaultSharedPreferences(requireContext())
-            .getBoolean(PREF_BOTTOM_NAV_ALWAYS_VISIBLE, false)
-    }
-
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putStringArray(GENRES_EXCLUSION_FILTER, genresExclusionFilter?.map {
             it.name
@@ -601,7 +575,6 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
 
         // Reflect preference changes (e.g. enabling/disabling the scroll-to-top button
         // or the tag exclusion filter) made while another fragment was visible.
-        updateBottomNavAlwaysVisible()
         (activity as? MainActivity)?.binding?.speedDial?.let { speedDial ->
             setupSpeedDialActions(speedDial)
             updateUI()
@@ -615,7 +588,6 @@ class BrowseFragment : Fragment(), CoroutineScope by MainScope() {
         // Rebuild the speed dial when the tab is shown again so preference changes made in
         // another tab (e.g. toggling the scroll-to-top/search buttons) take effect.
         if (!hidden) {
-            updateBottomNavAlwaysVisible()
             (activity as? MainActivity)?.binding?.speedDial?.let { speedDial ->
                 setupSpeedDialActions(speedDial)
             }

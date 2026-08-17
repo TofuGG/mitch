@@ -60,7 +60,7 @@ android {
 
         // The version name comes from -PversionName (set by the release workflow from the
         // commit message, e.g. "release 2.3.4"), or falls back to the default below.
-        val releaseVersionName = (project.findProperty("versionName") as? String) ?: "2.3.3"
+        val releaseVersionName = (project.findProperty("versionName") as? String) ?: "2.3.95"
         versionName = releaseVersionName
         // Derive a monotonic version code from the version name, e.g. "2.3.4" -> 203040, so
         // version bumps stay installable as upgrades. The trailing digit is reserved for

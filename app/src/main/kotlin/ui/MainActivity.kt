@@ -46,6 +46,13 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
     // noisy scroll deltas (see BOTTOM_NAV_TOGGLE_COOLDOWN).
     private var lastNavToggleTime = 0L
 
+    // Set while [updateContentBottomInset] is changing the fragment container's bottom margin.
+    // The margin change triggers an asynchronous layout pass; the WebView/ScrollView inside
+    // re-layouts and fires onScrollChangeListener with a scroll delta that can cross the
+    // auto-hide threshold in the opposite direction, creating an oscillation (hide → show →
+    // hide). The flag suppresses those layout-induced scroll events until the layout settles.
+    private var suppressScrollFromLayoutChange = false
+
     lateinit var binding: ActivityMainBinding
         private set
 
@@ -65,9 +72,12 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
         // the space it vacates.
         private const val BOTTOM_NAV_ANIM_DURATION = 200L
 
-        // Minimum time between auto-hide/show flips triggered by scrolling. A noisy scroll
-        // delta right after a flip would otherwise cancel the running slide animation mid-flight.
-        private const val BOTTOM_NAV_TOGGLE_COOLDOWN = 200L
+        // Minimum time between auto-hide/show flips triggered by scrolling. Must exceed the
+        // animation duration so the slide completes before a new flip can start; also covers
+        // Chromium's asynchronous layout pass — when the margin changes, the WebView re-layouts
+        // and may fire a clamped-scroll event 100-200 ms later, which would otherwise trigger
+        // the opposite toggle and create an oscillation (hide → show → hide).
+        private const val BOTTOM_NAV_TOGGLE_COOLDOWN = 350L
 
         const val BROWSE_FRAGMENT_TAG: String = "browse"
         const val LIBRARY_FRAGMENT_TAG: String = "library"
@@ -333,7 +343,6 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
         if (resetNavBar)
             navBarSelectItem(getItemId(newFragmentTag))
 
-
         if (currentFragmentTag == BROWSE_FRAGMENT_TAG && newFragmentTag != BROWSE_FRAGMENT_TAG)
             browseFragment.restoreDefaultUI()
 
@@ -360,8 +369,8 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
         val nav = binding.bottomNavigationView
         if (nav.visibility != View.VISIBLE)
             return
-        // Debounce: ignore scroll deltas that arrive right after a flip so they can't
-        // cancel the slide animation mid-flight (e.g. a fast fling overshooting).
+        if (suppressScrollFromLayoutChange)
+            return
         if (SystemClock.uptimeMillis() - lastNavToggleTime < BOTTOM_NAV_TOGGLE_COOLDOWN)
             return
         if (dy > BOTTOM_NAV_AUTO_HIDE_THRESHOLD)
@@ -383,6 +392,8 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
     private fun setBottomNavHidden(hidden: Boolean) {
         if (bottomNavHidden == hidden)
             return
+        if (suppressScrollFromLayoutChange && !hidden)
+            return
         bottomNavHidden = hidden
         lastNavToggleTime = SystemClock.uptimeMillis()
 
@@ -390,14 +401,32 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
         // full-height underneath it, so we just drop the reserved bottom margin; no layout
         // animation on the content, which would be laggy with a WebView.
         val nav = binding.bottomNavigationView
+        val gameBar = binding.bottomGameBar
+        val offset = if (hidden) nav.height.toFloat() else 0f
         nav.animate().cancel()
         nav.animate()
-            .translationY(if (hidden) nav.height.toFloat() else 0f)
+            .translationY(offset)
             .setDuration(BOTTOM_NAV_ANIM_DURATION)
             .setInterpolator(DecelerateInterpolator())
             .start()
+        if (gameBar.visibility == View.VISIBLE) {
+            gameBar.animate().cancel()
+            gameBar.animate()
+                .translationY(offset)
+                .setDuration(BOTTOM_NAV_ANIM_DURATION)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
+        }
 
+        // Suppress scroll events caused by the margin change: the layout pass fires the
+        // WebView/ScrollView's onScrollChangeListener with a delta that can cross the
+        // auto-hide threshold in the opposite direction, creating an oscillation. The flag
+        // is cleared after two frames (~32 ms) once the layout has settled.
+        suppressScrollFromLayoutChange = true
         updateContentBottomInset()
+        binding.fragmentContainer.postDelayed({
+            suppressScrollFromLayoutChange = false
+        }, BOTTOM_NAV_TOGGLE_COOLDOWN)
     }
 
     /**
@@ -407,15 +436,18 @@ class MainActivity : MitchActivity(), CoroutineScope by MainScope() {
      * already-present content fills the vacated space — no blank strip.
      */
     private fun updateContentBottomInset() {
+        val gameBar = binding.bottomGameBar
+        val gameBarVisible = gameBar.visibility == View.VISIBLE && gameBar.height > 0
         val inset = if (bottomNavHidden) 0 else binding.bottomView.height
+        val fabInset = if (bottomNavHidden && gameBarVisible) gameBar.height else inset
         val containerParams = binding.fragmentContainer.layoutParams as ConstraintLayout.LayoutParams
         val fabParams = binding.speedDial.layoutParams as ConstraintLayout.LayoutParams
         if (containerParams.bottomMargin != inset) {
             containerParams.bottomMargin = inset
             binding.fragmentContainer.requestLayout()
         }
-        if (fabParams.bottomMargin != inset) {
-            fabParams.bottomMargin = inset
+        if (fabParams.bottomMargin != fabInset) {
+            fabParams.bottomMargin = fabInset
             binding.speedDial.requestLayout()
         }
     }
