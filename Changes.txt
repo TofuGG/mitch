@@ -4,6 +4,14 @@ Changelog for **Mitchy** releases published at
 <https://github.com/TofuGG/mitch/releases>. Newest first. Each entry is the
 release message from the matching `release` commit.
 
+## 2.3.96 (2026-08-17)
+
+Changes:
+- Fixed update notification showing literal placeholder strings `[Mitch file size]
+  . [Mitch release name]` instead of actual values. `checkMitchUpdate()` now
+  extracts the real release name and APK file size from the GitHub releases API
+  response instead of copying the DB record's placeholder constants.
+
 ## 2.3.95 (2026-08-17)
 
 Changes:

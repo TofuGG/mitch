@@ -51,12 +51,14 @@ class SingleUpdateChecker(val db: AppDatabase) {
 
             val release = JSONObject(body)
             val tagName = release.getString("tag_name")
+            val releaseName = release.optString("name", tagName)
             val apkUrl = getApkAssetUrl(release)
                 ?: return UpdateCheckResult(
                     install.internalId,
                     UpdateCheckResult.ERROR,
                     errorReport = "No APK asset in the latest GitHub release"
                 )
+            val apkFileSize = getApkFileSize(release)
 
             // Compare against the real running version, not the DB record, which can be
             // stale or missing and would otherwise cause spurious update notifications.
@@ -71,7 +73,11 @@ class SingleUpdateChecker(val db: AppDatabase) {
                     isPermanent = true,
                     isStorePage = false
                 ),
-                availableUpdateInstall = install.copy(version = tagName)
+                availableUpdateInstall = install.copy(
+                    version = tagName,
+                    uploadName = releaseName,
+                    fileSize = apkFileSize
+                )
             )
         } catch (e: Exception) {
             Log.e(LOGGING_TAG, "Error checking for Mitchy updates", e)
@@ -95,6 +101,26 @@ class SingleUpdateChecker(val db: AppDatabase) {
             if (unsignedFallback == null) unsignedFallback = url
         }
         return unsignedFallback
+    }
+
+    private fun getApkFileSize(release: JSONObject): String {
+        val assets = release.getJSONArray("assets")
+        var fallbackSize: Long = -1
+        for (i in 0 until assets.length()) {
+            val asset = assets.getJSONObject(i)
+            val name = asset.getString("name")
+            if (!name.endsWith(".apk")) continue
+            val size = asset.getLong("size")
+            if (!name.contains("-unsigned")) return formatFileSize(size)
+            if (fallbackSize < 0) fallbackSize = size
+        }
+        return if (fallbackSize >= 0) formatFileSize(fallbackSize) else Installation.MITCH_FILE_SIZE
+    }
+
+    private fun formatFileSize(sizeBytes: Long): String {
+        return if (sizeBytes < 1024) "$sizeBytes B"
+        else if (sizeBytes < 1024 * 1024) "${sizeBytes / 1024} KB"
+        else String.format("%.1f MB", sizeBytes / (1024.0 * 1024.0))
     }
 
     suspend fun getDownloadInfo(currentGame: Game): DownloadInfo {
